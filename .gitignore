@@ -1,0 +1,25 @@
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+
+# Databases & local HPO runs
+*.db
+*.db-journal
+*.sqlite
+hpo_studies.db
+
+# Machine learning model checkpoints/weights
+*.pt
+*.pth
+*.ckpt
+checkpoints/
+
+# System files
+.DS_Store
+.env
