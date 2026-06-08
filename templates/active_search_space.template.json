@@ -1,0 +1,18 @@
+{
+    "_comment": "Copy to active_search_space.json at repo root and edit. Types: 'float', 'float_log' (use min/max), 'categorical' (use options + active subset). The coordinator can narrow 'active' / min-max over time; 'options' is the hard allow-list. Replace these example params with your own.",
+    "learning_rate": {
+        "min": 1e-05,
+        "max": 0.01,
+        "type": "float_log"
+    },
+    "batch_size": {
+        "options": [2, 4, 8, 16, 32, 64],
+        "active": [4, 8, 16],
+        "type": "categorical"
+    },
+    "dropout": {
+        "min": 0.0,
+        "max": 0.5,
+        "type": "float"
+    }
+}
