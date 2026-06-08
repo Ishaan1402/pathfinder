@@ -566,33 +566,58 @@
     </div>
 
     <script>
-
-
-        const urlParams = new URLSearchParams(window.location.search);
-        let studyName = urlParams.get('study') || urlParams.get('study_name') || "bridge_crack_study";
-        let paretoChart = null;
-        let historyChart = null;
-        let globalTrials = [];
-        let globalThoughtLogs = [];
-        let globalHpoConfig = null;
-        let globalEvalInsights = null;
-        let globalReview = null;
-        let reviewPillDismissed = false;
-        let reviewPillDismissTimeout = null;
-        let lastCompletedCount = null;
-        let lastDashboardHeaderSnapshot = "";
-        let lastAnalysisHeaderSnapshot = "";
-        let accentColorHex = "#06b6d4";
-        // Persisted top-performers filter binding (sessionStorage). Centralized so renaming
-        // the filter toggle during modularization can't silently break its saved state.
-        const HPO_FILTER_TOP_KEY = "hpo_filter_top";
-        let filterTopPerformersOnly = sessionStorage.getItem(HPO_FILTER_TOP_KEY) === "1";
-        let latestStudyData = null;
-        const DASHBOARD_TABLE_COLS = 9;
-
-        let telemetryTrack = { trialNumber: null };
-
-        const HPO_MARK_SVG = `
+        window.HPOState = {
+            session: {
+                studyName: new URLSearchParams(window.location.search).get("study")
+                    || new URLSearchParams(window.location.search).get("study_name")
+                    || "bridge_crack_study",
+            },
+            data: {
+                trials: [],
+                latestStudyData: null,
+                hpoConfig: null,
+                evalInsights: null,
+                review: null,
+                activeSearchSpace: {},
+                thoughtLogs: [],
+                studyHealthReason: "",
+            },
+            ui: {
+                accentColorHex: "#06b6d4",
+                filterTopPerformersOnly: false,
+                isModalOpen: false,
+                reviewPillDismissed: false,
+                reviewPillDismissTimeout: null,
+                toastTimeout: null,
+                columnWidths: {},
+                modifiedParams: new Set(),
+                parallelCoordinatesHoveredTrial: null,
+            },
+            render: {
+                pendingRender: false,
+                lastTrialsSnapshot: null,
+                lastDashboardHeaderSnapshot: "",
+                lastAnalysisHeaderSnapshot: "",
+                lastFanovaPayload: null,
+                lastFanovaRenderKey: null,
+                lastParetoPointCount: 0,
+            },
+            telemetry: {
+                trialNumber: null,
+                lastCompletedCount: null,
+            },
+            poll: {
+                failures: 0,
+                timeoutId: null,
+            },
+            charts: {
+                pareto: { instance: null },
+                modalHistory: { instance: null },
+            },
+            constants: {
+                HPO_FILTER_TOP_KEY: "hpo_filter_top",
+                DASHBOARD_TABLE_COLS: 9,
+                HPO_MARK_SVG: `
             <div class="hpo-mark" role="img" aria-label="Pathfinder">
                 <svg class="hpo-mark-svg" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
                     <g class="hpo-planet-wrap">
@@ -609,95 +634,19 @@
                         <path class="hpo-wisp hpo-wisp-3" d="M40 48c2 2 2 5-1 6-3 1-5-1-5-4 0-3 2-4 6-2z"/>
                     </g>
                 </svg>
-            </div>`;
+            </div>`,
+            },
+        };
+        window.HPOState.ui.filterTopPerformersOnly =
+            sessionStorage.getItem(window.HPOState.constants.HPO_FILTER_TOP_KEY) === "1";
 
-        document.addEventListener("DOMContentLoaded", () => {
-            initHpoMarks();
-            syncTopPerformersFilterCheckboxes();
-            
-            // Load and apply saved interface style configurations
-            const savedAccentName = localStorage.getItem("hpo_accent_name") || "cyan";
-            const savedAccentColor = localStorage.getItem("hpo_accent_color") || "#06b6d4";
-            const savedAccentGlow = localStorage.getItem("hpo_accent_glow") || "rgba(6, 182, 212, 0.3)";
-            changeAccent(savedAccentName, savedAccentColor, savedAccentGlow);
-
-            const savedStatusStyle = localStorage.getItem("hpo_status_style") || "full";
-            setStatusStyle(savedStatusStyle);
-
-            fetchSearchSpace();
-            fetchHpoConfig();
-            const reviewPill = document.getElementById("dashboard-review-pill");
-            if (reviewPill) {
-                reviewPill.addEventListener("click", copyReviewPrompt);
-                reviewPill.addEventListener("keydown", (e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        copyReviewPrompt();
-                    }
-                });
-            }
-            const reviewCloseBtn = document.getElementById("dashboard-review-close");
-            if (reviewCloseBtn) {
-                reviewCloseBtn.addEventListener("click", (e) => {
-                    e.stopPropagation();
-                    dismissReviewPill();
-                });
-            }
-            populateStudyList();
-            const studySelect = document.getElementById("study-select");
-            if (studySelect) {
-                studySelect.addEventListener("change", (e) => {
-                    const val = e.target.value;
-                    const url = new URL(window.location);
-                    url.searchParams.set('study', val);
-                    window.history.pushState({}, '', url);
-                    studyName = val;
-                    // Reset/poll the details for the new study immediately
-                    fetchStudyDetails();
-                    fetchFanova();
-                });
-            }
-            // Auto-fetch ngrok tunnel URL if established
-            fetch("/api/tunnel_url")
-                .then(res => res.json())
-                .then(data => {
-                    if (data.success && data.url) {
-                        const input = document.getElementById("ngrok-url-input");
-                        if (input) {
-                            input.value = data.url;
-                            updateColabSnippet();
-                        }
-                    }
-                })
-                .catch(err => console.error("Error fetching tunnel URL:", err));
-
-            // Dynamic labels sync for evaluation protocol inputs
-            const scoreLabelInput = document.getElementById("eval-metric-score-label");
-            if (scoreLabelInput) {
-                scoreLabelInput.addEventListener("input", (e) => {
-                    const val = e.target.value.trim() || "Score";
-                    const trainLabelInput = document.getElementById("eval-dice-train-label");
-                    const fixedLabelInput = document.getElementById("eval-dice-fixed-label");
-                    if (trainLabelInput) {
-                        trainLabelInput.placeholder = `${val} (train)`;
-                    }
-                    if (fixedLabelInput) {
-                        fixedLabelInput.placeholder = `${val} (eval)`;
-                    }
-                });
-            }
-
-            pollData();
-
-            // Initial routing setup
-            handleRouting();
-        });
-
-        window.addEventListener("hashchange", handleRouting);
+        /* ===== HPOApp: shared dashboard logic (IIFE sections below) ===== */
+        (function HPOApp() {
+        /* --- Section: Core / Utilities --- */
 
         function paramLabel(key) {
-            if (!globalHpoConfig) return key;
-            return globalHpoConfig.param_labels?.[key] || key;
+            if (!window.HPOState.data.hpoConfig) return key;
+            return window.HPOState.data.hpoConfig.param_labels?.[key] || key;
         }
 
         function fanovaParamLabel(param) {
@@ -751,14 +700,14 @@
             void toast.offsetWidth; 
             toast.classList.add("show");
             
-            if (window.toastTimeout) clearTimeout(window.toastTimeout);
-            window.toastTimeout = setTimeout(() => {
+            if (window.HPOState.ui.toastTimeout) clearTimeout(window.HPOState.ui.toastTimeout);
+            window.HPOState.ui.toastTimeout = setTimeout(() => {
                 toast.classList.remove("show");
             }, 2500);
         }
 
         function copyTrialConfigToClipboard(trialNumber, format) {
-            const trial = globalTrials.find(t => t.number === trialNumber);
+            const trial = window.HPOState.data.trials.find(t => t.number === trialNumber);
             if (!trial) return;
 
             let text = "";
@@ -778,13 +727,13 @@
         }
 
         function exportTrialsToCsv() {
-            if (!globalTrials || globalTrials.length === 0) {
+            if (!window.HPOState.data.trials || window.HPOState.data.trials.length === 0) {
                 showToast("No trial data available to export.");
                 return;
             }
 
-            const ev = globalHpoConfig?.eval_protocol || {};
-            const activeSpace = activeConfig || {};
+            const ev = window.HPOState.data.hpoConfig?.eval_protocol || {};
+            const activeSpace = window.HPOState.data.activeSearchSpace || {};
             const paramKeys = Object.keys(activeSpace).filter(k => !k.startsWith("_") && typeof activeSpace[k] === "object");
             paramKeys.sort();
 
@@ -796,7 +745,7 @@
 
             const rows = [headers.join(",")];
 
-            globalTrials.forEach(t => {
+            window.HPOState.data.trials.forEach(t => {
                 const row = [
                     `#${t.number}`,
                     t.state,
@@ -817,7 +766,7 @@
             const encodedUri = encodeURI(csvContent);
             const link = document.createElement("a");
             link.setAttribute("href", encodedUri);
-            link.setAttribute("download", `${studyName}_trials_${new Date().toISOString().slice(0,10)}.csv`);
+            link.setAttribute("download", `${window.HPOState.session.studyName}_trials_${new Date().toISOString().slice(0,10)}.csv`);
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
@@ -825,11 +774,11 @@
         }
 
         function copyTrialsToJson() {
-            if (!globalTrials || globalTrials.length === 0) {
+            if (!window.HPOState.data.trials || window.HPOState.data.trials.length === 0) {
                 showToast("No trial data available to copy.");
                 return;
             }
-            const cleanJson = JSON.stringify(globalTrials, null, 2);
+            const cleanJson = JSON.stringify(window.HPOState.data.trials, null, 2);
             navigator.clipboard.writeText(cleanJson).then(() => {
                 showToast("All trials data copied to clipboard as JSON.");
             }).catch(err => {
@@ -839,7 +788,7 @@
 
         async function exportParetoFront() {
             try {
-                const res = await fetch(`/api/pareto_front?study_name=${studyName}`);
+                const res = await fetch(`/api/pareto_front?study_name=${window.HPOState.session.studyName}`);
                 if (!res.ok) throw new Error("API error");
                 const data = await res.json();
                 
@@ -848,7 +797,7 @@
                     return;
                 }
 
-                const activeSpace = activeConfig || {};
+                const activeSpace = window.HPOState.data.activeSearchSpace || {};
                 const paramKeys = Object.keys(activeSpace).filter(k => !k.startsWith("_") && typeof activeSpace[k] === "object");
                 paramKeys.sort();
 
@@ -873,7 +822,7 @@
                 const encodedUri = encodeURI(csvContent);
                 const link = document.createElement("a");
                 link.setAttribute("href", encodedUri);
-                link.setAttribute("download", `${studyName}_pareto_front_${new Date().toISOString().slice(0,10)}.csv`);
+                link.setAttribute("download", `${window.HPOState.session.studyName}_pareto_front_${new Date().toISOString().slice(0,10)}.csv`);
                 document.body.appendChild(link);
                 link.click();
                 document.body.removeChild(link);
@@ -884,14 +833,14 @@
         }
 
         function exportStudyConfig() {
-            if (!globalHpoConfig) {
+            if (!window.HPOState.data.hpoConfig) {
                 showToast("No study configuration available.");
                 return;
             }
-            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(globalHpoConfig, null, 2));
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(window.HPOState.data.hpoConfig, null, 2));
             const link = document.createElement("a");
             link.setAttribute("href", dataStr);
-            link.setAttribute("download", `${studyName}_config_${new Date().toISOString().slice(0,10)}.json`);
+            link.setAttribute("download", `${window.HPOState.session.studyName}_config_${new Date().toISOString().slice(0,10)}.json`);
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
@@ -899,14 +848,14 @@
         }
 
         function exportFullTrialsJson() {
-            if (!globalTrials || globalTrials.length === 0) {
+            if (!window.HPOState.data.trials || window.HPOState.data.trials.length === 0) {
                 showToast("No trial data available.");
                 return;
             }
-            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(globalTrials, null, 2));
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(window.HPOState.data.trials, null, 2));
             const link = document.createElement("a");
             link.setAttribute("href", dataStr);
-            link.setAttribute("download", `${studyName}_full_trials_${new Date().toISOString().slice(0,10)}.json`);
+            link.setAttribute("download", `${window.HPOState.session.studyName}_full_trials_${new Date().toISOString().slice(0,10)}.json`);
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
@@ -926,7 +875,7 @@
 
         function formatTrainResolution(trial) {
             const key =
-                globalHpoConfig?.eval_protocol?.train_resolution_param || "resolution";
+                window.HPOState.data.hpoConfig?.eval_protocol?.train_resolution_param || "resolution";
             const val =
                 trial.train_resolution ??
                 trial.params?.[key] ??
@@ -939,21 +888,21 @@
         }
 
         function applyAnalysisTableHeaders() {
-            const ev = globalHpoConfig?.eval_protocol || {};
-            const paramLabels = globalHpoConfig?.param_labels || {};
-            const activeSpace = activeConfig || {};
+            const ev = window.HPOState.data.hpoConfig?.eval_protocol || {};
+            const paramLabels = window.HPOState.data.hpoConfig?.param_labels || {};
+            const activeSpace = window.HPOState.data.activeSearchSpace || {};
             const paramKeys = Object.keys(activeSpace).filter(k => !k.startsWith("_") && typeof activeSpace[k] === "object");
             paramKeys.sort();
 
-            const lossLabel = globalHpoConfig?.metric_loss_label || "Loss";
-            const scoreLabel = globalHpoConfig?.metric_score_label || "Score";
+            const lossLabel = window.HPOState.data.hpoConfig?.metric_loss_label || "Loss";
+            const scoreLabel = window.HPOState.data.hpoConfig?.metric_score_label || "Score";
             const evalLabel = ev.dice_fixed_label || "Score (eval)";
 
             const headerSnapshot = `${lossLabel}|${scoreLabel}|${evalLabel}|${ev.enabled}|${paramKeys.join(",")}`;
-            if (headerSnapshot === lastAnalysisHeaderSnapshot) {
+            if (headerSnapshot === window.HPOState.render.lastAnalysisHeaderSnapshot) {
                 return;
             }
-            lastAnalysisHeaderSnapshot = headerSnapshot;
+            window.HPOState.render.lastAnalysisHeaderSnapshot = headerSnapshot;
 
             const tableHeader = document.querySelector("#analysis-view table.trial-table thead tr");
             if (tableHeader) {
@@ -996,7 +945,7 @@
             }
 
             // Get train resolution/fidelity param from config
-            const ev = globalHpoConfig?.eval_protocol || {};
+            const ev = window.HPOState.data.hpoConfig?.eval_protocol || {};
             const trainParam = ev.train_resolution_param || "resolution";
             const trainParamLabel = paramLabel(trainParam);
 
@@ -1007,7 +956,7 @@
                 headerTitle.textContent = `${capitalizedLabel} breakdown`;
             }
 
-            const summary = globalEvalInsights?.resolution_summary || {};
+            const summary = window.HPOState.data.evalInsights?.resolution_summary || {};
             const keys = Object.keys(summary);
             
             // Show only if evaluation protocol is enabled and we have trials grouped by this parameter
@@ -1030,10 +979,10 @@
                 grid.innerHTML = "";
             }
 
-            const scoreLabel = globalHpoConfig?.metric_score_label || "Score";
-            if (deployLabel && globalEvalInsights?.best_deploy_trial_number != null) {
-                const d = globalEvalInsights.best_deploy_dice_fixed;
-                deployLabel.textContent = `Best fixed-eval: Trial #${globalEvalInsights.best_deploy_trial_number}${d != null ? ` · ${scoreLabel} ${d.toFixed(4)}` : ""}`;
+            const scoreLabel = window.HPOState.data.hpoConfig?.metric_score_label || "Score";
+            if (deployLabel && window.HPOState.data.evalInsights?.best_deploy_trial_number != null) {
+                const d = window.HPOState.data.evalInsights.best_deploy_dice_fixed;
+                deployLabel.textContent = `Best fixed-eval: Trial #${window.HPOState.data.evalInsights.best_deploy_trial_number}${d != null ? ` · ${scoreLabel} ${d.toFixed(4)}` : ""}`;
             } else if (deployLabel) {
                 deployLabel.textContent = "";
             }
@@ -1054,55 +1003,141 @@
         }
 
         function dismissReviewPill() {
-            reviewPillDismissed = true;
+            window.HPOState.ui.reviewPillDismissed = true;
             const pill = document.getElementById("dashboard-review-pill");
             if (pill) pill.classList.add("hidden");
             
             // Clear double ping on dismiss via backend DB
-            fetch(`/api/dismiss_coordinator_nudge?study_name=${studyName}`, { method: "POST" })
+            fetch(`/api/dismiss_coordinator_nudge?study_name=${window.HPOState.session.studyName}`, { method: "POST" })
                 .catch(err => console.error("Error dismissing nudge:", err));
                 
             const brandMark = document.querySelector('.brand-mark');
             if (brandMark) brandMark.classList.remove("ping-twice");
             
-            if (reviewPillDismissTimeout) {
-                clearTimeout(reviewPillDismissTimeout);
-                reviewPillDismissTimeout = null;
+            if (window.HPOState.ui.reviewPillDismissTimeout) {
+                clearTimeout(window.HPOState.ui.reviewPillDismissTimeout);
+                window.HPOState.ui.reviewPillDismissTimeout = null;
             }
         }
 
         function updateStatConfidenceBanner(confidence, nComplete) {
             const count = Number.isFinite(nComplete) ? nComplete : 0;
             const show = confidence === "low";
-            const text = show
-                ? `<strong>${count} complete trial${count === 1 ? "" : "s"}</strong>. Early signal; treat rankings and parameter trends as indicative.`
-                : "";
             ["stat-confidence-banner", "stat-confidence-banner-dashboard"].forEach((id) => {
                 const el = document.getElementById(id);
                 if (!el) return;
-                el.innerHTML = text;
+                el.replaceChildren();
+                if (show) {
+                    const strong = document.createElement("strong");
+                    strong.textContent = `${count} complete trial${count === 1 ? "" : "s"}`;
+                    el.appendChild(strong);
+                    el.appendChild(document.createTextNode(". Early signal; treat rankings and parameter trends as indicative."));
+                }
                 el.classList.toggle("hidden", !show);
             });
+        }
+
+        /* --- Section: Health / Coordinator --- */
+        function policyActionLabel(action) {
+            const labels = {
+                no_change: "No change",
+                update_search_space: "Search space adjusted",
+                enqueue_one_manual_trial: "Manual trial queued",
+            };
+            return labels[action] || action || "Unknown action";
+        }
+
+        function formatReviewDate(createdAt) {
+            if (!createdAt) return "";
+            const d = new Date(createdAt);
+            if (Number.isNaN(d.getTime())) return String(createdAt);
+            return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+        }
+
+        function formatOutcomeStatus(status) {
+            const labels = {
+                measured: "Outcome measured",
+                pending: "Outcome pending",
+                not_applicable: "No change applied",
+                inconclusive: "Outcome inconclusive",
+            };
+            return labels[status] || status || "";
         }
 
         function renderPastReviews(reviews) {
             const panel = document.getElementById("past-reviews-panel");
             const list = document.getElementById("past-reviews-list");
             if (!panel || !list) return;
+            list.replaceChildren();
             if (!reviews || reviews.length === 0) {
                 panel.style.display = "none";
-                list.innerHTML = "";
                 return;
             }
             panel.style.display = "flex";
-            list.innerHTML = reviews.slice(0, 5).map((r) => {
-                const flagged = r.quality_flagged ? " [flagged]" : "";
-                const summary = (r.summary || "").slice(0, 80);
-                return `<div style="font-size:0.72rem;padding:4px 6px;background:rgba(0,0,0,0.2);border-radius:4px;display:flex;justify-content:space-between;gap:6px;align-items:center;">
-                    <span>#${r.id} · ${r.policy_action}${flagged}: ${summary}</span>
-                    <button type="button" class="export-panel-btn" style="padding:2px 6px;font-size:0.68rem;flex-shrink:0;" onclick="toggleReviewFlag(${r.id}, ${r.quality_flagged ? "false" : "true"})">${r.quality_flagged ? "Unflag" : "Flag"}</button>
-                </div>`;
-            }).join("");
+            reviews.slice(0, 5).forEach((r) => {
+                const row = document.createElement("div");
+                row.style.cssText = "font-size:0.72rem;padding:6px 8px;background:rgba(0,0,0,0.2);border-radius:4px;display:flex;flex-direction:column;gap:4px;";
+
+                const meta = document.createElement("div");
+                meta.style.cssText = "display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:0.68rem;color:var(--text-muted);";
+
+                const idSpan = document.createElement("span");
+                idSpan.textContent = `#${r.id}`;
+                meta.appendChild(idSpan);
+
+                const actionSpan = document.createElement("span");
+                actionSpan.textContent = policyActionLabel(r.policy_action);
+                meta.appendChild(actionSpan);
+
+                const dateStr = formatReviewDate(r.created_at);
+                if (dateStr) {
+                    const dateSpan = document.createElement("span");
+                    dateSpan.textContent = dateStr;
+                    meta.appendChild(dateSpan);
+                }
+
+                if (r.health_rating != null) {
+                    const ratingSpan = document.createElement("span");
+                    ratingSpan.textContent = `Health ${r.health_rating}/5`;
+                    meta.appendChild(ratingSpan);
+                }
+
+                const outcomeStr = formatOutcomeStatus(r.outcome_status);
+                if (outcomeStr) {
+                    const outcomeSpan = document.createElement("span");
+                    outcomeSpan.textContent = outcomeStr;
+                    meta.appendChild(outcomeSpan);
+                }
+
+                if (r.quality_flagged) {
+                    const flaggedSpan = document.createElement("span");
+                    flaggedSpan.textContent = "Flagged";
+                    flaggedSpan.style.color = "var(--status-fail, #ef4444)";
+                    meta.appendChild(flaggedSpan);
+                }
+
+                row.appendChild(meta);
+
+                const summaryEl = document.createElement("div");
+                summaryEl.style.cssText = "font-size:0.72rem;line-height:1.4;word-break:break-word;";
+                summaryEl.textContent = (r.summary || "").slice(0, 120);
+                row.appendChild(summaryEl);
+
+                if (r.policy_action && r.policy_action !== "no_change") {
+                    const actions = document.createElement("div");
+                    actions.style.cssText = "display:flex;justify-content:flex-end;margin-top:2px;";
+                    const flagBtn = document.createElement("button");
+                    flagBtn.type = "button";
+                    flagBtn.className = "export-panel-btn";
+                    flagBtn.style.cssText = "padding:2px 6px;font-size:0.68rem;flex-shrink:0;";
+                    flagBtn.textContent = r.quality_flagged ? "Unflag" : "Flag";
+                    flagBtn.addEventListener("click", () => toggleReviewFlag(r.id, !r.quality_flagged));
+                    actions.appendChild(flagBtn);
+                    row.appendChild(actions);
+                }
+
+                list.appendChild(row);
+            });
         }
 
         async function toggleReviewFlag(reviewId, flagged) {
@@ -1115,9 +1150,9 @@
         }
 
         function applyReviewUi() {
-            const recommended = globalReview?.review_recommended;
-            const reasons = globalReview?.reasons || [];
-            const show = !!(recommended && reasons.length) && !reviewPillDismissed;
+            const recommended = window.HPOState.data.review?.review_recommended;
+            const reasons = window.HPOState.data.review?.reasons || [];
+            const show = !!(recommended && reasons.length) && !window.HPOState.ui.reviewPillDismissed;
             const reasonText = reasons.map((r) => r.message || r.code).join("  •  ");
 
             const pill = document.getElementById("dashboard-review-pill");
@@ -1131,7 +1166,7 @@
         async function copyReviewPrompt() {
             const pillAction = document.querySelector("#dashboard-review-pill .review-pill-action");
             try {
-                const res = await fetch(`/api/review_packet?study_name=${studyName}`);
+                const res = await fetch(`/api/review_packet?study_name=${window.HPOState.session.studyName}`);
                 const data = await res.json();
                 const prompt = data.review_prompt || "";
                 await navigator.clipboard.writeText(prompt);
@@ -1142,14 +1177,14 @@
                 }
                 
                 // Clear double ping on copy prompt via backend DB
-                fetch(`/api/dismiss_coordinator_nudge?study_name=${studyName}`, { method: "POST" })
+                fetch(`/api/dismiss_coordinator_nudge?study_name=${window.HPOState.session.studyName}`, { method: "POST" })
                     .catch(err => console.error("Error dismissing nudge on copy:", err));
                     
                 const brandMark = document.querySelector('.brand-mark');
                 if (brandMark) brandMark.classList.remove("ping-twice");
                 
-                if (reviewPillDismissTimeout) clearTimeout(reviewPillDismissTimeout);
-                reviewPillDismissTimeout = setTimeout(() => {
+                if (window.HPOState.ui.reviewPillDismissTimeout) clearTimeout(window.HPOState.ui.reviewPillDismissTimeout);
+                window.HPOState.ui.reviewPillDismissTimeout = setTimeout(() => {
                     dismissReviewPill();
                 }, 120000); // 2 minutes
             } catch (err) {
@@ -1162,8 +1197,8 @@
             if (!tbody) return;
 
             applyAnalysisTableHeaders();
-            const ev = globalHpoConfig?.eval_protocol || {};
-            const activeSpace = activeConfig || {};
+            const ev = window.HPOState.data.hpoConfig?.eval_protocol || {};
+            const activeSpace = window.HPOState.data.activeSearchSpace || {};
             const paramKeys = Object.keys(activeSpace).filter(k => !k.startsWith("_") && typeof activeSpace[k] === "object");
             paramKeys.sort();
 
@@ -1236,8 +1271,8 @@
             try {
                 const res = await fetch("/api/hpo_config");
                 if (!res.ok) return;
-                globalHpoConfig = await res.json();
-                populateEvalProtocolForm(globalHpoConfig);
+                window.HPOState.data.hpoConfig = await res.json();
+                populateEvalProtocolForm(window.HPOState.data.hpoConfig);
                 applyAnalysisTableHeaders();
             } catch (err) {
                 console.error("Error fetching hpo_config:", err);
@@ -1277,7 +1312,7 @@
             const fixedRaw = document.getElementById("eval-fixed-resolution")?.value;
             const lowRaw = document.getElementById("eval-low-warn")?.value;
             const payload = {
-                ...globalHpoConfig,
+                ...window.HPOState.data.hpoConfig,
                 metric_loss_label: document.getElementById("eval-metric-loss-label")?.value || "BCE",
                 metric_score_label: document.getElementById("eval-metric-score-label")?.value || "Dice",
                 eval_protocol: {
@@ -1306,8 +1341,8 @@
                     return;
                 }
                 const data = await res.json();
-                globalHpoConfig = data.config || data;
-                populateEvalProtocolForm(globalHpoConfig);
+                window.HPOState.data.hpoConfig = data.config || data;
+                populateEvalProtocolForm(window.HPOState.data.hpoConfig);
                 applyAnalysisTableHeaders();
                 applyEvalInsightsUi();
                 renderAnalysisTrialsTable(getDisplayTrialsForCurrentStudy().trials);
@@ -1320,7 +1355,7 @@
 
         async function saveIdeSettings() {
             const payload = {
-                ...globalHpoConfig,
+                ...window.HPOState.data.hpoConfig,
                 desktop_notifications_enabled: !!document.getElementById("desktop-notifs-enabled")?.checked,
             };
             try {
@@ -1334,8 +1369,8 @@
                     return;
                 }
                 const data = await res.json();
-                globalHpoConfig = data.config || data;
-                populateEvalProtocolForm(globalHpoConfig);
+                window.HPOState.data.hpoConfig = data.config || data;
+                populateEvalProtocolForm(window.HPOState.data.hpoConfig);
                 alert("IDE integration settings saved successfully!");
             } catch (err) {
                 alert("Error saving IDE settings: " + err);
@@ -1387,12 +1422,6 @@
 
 
 
-        let lastTrialsSnapshot = null;
-        let lastFanovaPayload = null;
-        let isModalOpen = false;
-        let pendingRender = false;
-        let lastParetoPointCount = 0;
-
         function buildTrialsSnapshot(trials, paretoSet) {
             const base = trials
                 .map(
@@ -1401,12 +1430,12 @@
                 )
                 .sort((a, b) => Number(a.split("|")[0]) - Number(b.split("|")[0]))
                 .join(";");
-            return `${base}|top15:${filterTopPerformersOnly ? 1 : 0}`;
+            return `${base}|top15:${window.HPOState.ui.filterTopPerformersOnly ? 1 : 0}`;
         }
 
         function getDisplayTrialsForCurrentStudy() {
-            const paretoSet = new Set((latestStudyData && latestStudyData.pareto_trials) || []);
-            const trials = filterTrialsForDisplay(globalTrials || [], paretoSet);
+            const paretoSet = new Set((window.HPOState.data.latestStudyData && window.HPOState.data.latestStudyData.pareto_trials) || []);
+            const trials = filterTrialsForDisplay(window.HPOState.data.trials || [], paretoSet);
             return { trials, paretoSet };
         }
 
@@ -1420,34 +1449,34 @@
         function syncTopPerformersFilterCheckboxes() {
             const analysisCb = document.getElementById("filter-top-performers");
             const dashboardCb = document.getElementById("filter-top-performers-dashboard");
-            if (analysisCb) analysisCb.checked = filterTopPerformersOnly;
-            if (dashboardCb) dashboardCb.checked = filterTopPerformersOnly;
+            if (analysisCb) analysisCb.checked = window.HPOState.ui.filterTopPerformersOnly;
+            if (dashboardCb) dashboardCb.checked = window.HPOState.ui.filterTopPerformersOnly;
         }
 
         function onTopPerformersFilterChange(fromDashboard) {
             const analysisCb = document.getElementById("filter-top-performers");
             const dashboardCb = document.getElementById("filter-top-performers-dashboard");
             const source = fromDashboard ? dashboardCb : analysisCb;
-            filterTopPerformersOnly = !!(source && source.checked);
-            sessionStorage.setItem(HPO_FILTER_TOP_KEY, filterTopPerformersOnly ? "1" : "0");
+            window.HPOState.ui.filterTopPerformersOnly = !!(source && source.checked);
+            sessionStorage.setItem(window.HPOState.constants.HPO_FILTER_TOP_KEY, window.HPOState.ui.filterTopPerformersOnly ? "1" : "0");
             syncTopPerformersFilterCheckboxes();
             refreshFilteredVisualizations();
         }
 
         // Broker maps primary_score -> the `dice` field; allow a study config override.
         function getPrimaryScoreKey() {
-            return globalHpoConfig?.primary_score_key || "dice";
+            return window.HPOState.data.hpoConfig?.primary_score_key || "dice";
         }
 
         function filterTrialsForDisplay(trials, paretoSet) {
-            if (!filterTopPerformersOnly || !trials || trials.length === 0) return trials;
+            if (!window.HPOState.ui.filterTopPerformersOnly || !trials || trials.length === 0) return trials;
             const scoreKey = getPrimaryScoreKey();
             const completed = trials.filter((t) => t.state === "COMPLETE" && t[scoreKey] != null);
             if (completed.length < 3) return trials;
             // The primary-score field (`dice`) is a MAXIMIZE axis in every study this app
             // creates, so sort descending (best first). The direction flip only matters for a
             // single-objective MINIMIZE study (none exist today); guarded for future-proofing.
-            const directions = latestStudyData?.study_directions;
+            const directions = window.HPOState.data.latestStudyData?.study_directions;
             const isSingleObj = !directions || directions.length === 1;
             const dirMultiplier = (isSingleObj && directions && directions[0] === "MINIMIZE") ? 1 : -1;
             const sorted = [...completed].sort(
@@ -1461,13 +1490,13 @@
         }
 
         function refreshFilteredVisualizations() {
-            if (!latestStudyData) return;
-            lastTrialsSnapshot = null;
-            if (isModalOpen) {
-                pendingRender = true;
+            if (!window.HPOState.data.latestStudyData) return;
+            window.HPOState.render.lastTrialsSnapshot = null;
+            if (window.HPOState.ui.isModalOpen) {
+                window.HPOState.render.pendingRender = true;
                 return;
             }
-            renderStudyDetails(latestStudyData);
+            renderStudyDetails(window.HPOState.data.latestStudyData);
         }
 
         async function fetchPendingChanges(throwOnError = false) {
@@ -1485,36 +1514,52 @@
                 
                 if (data && data.proposed_changes) {
                     const proposed = data.proposed_changes;
-                    const current = activeConfig || {};
-                    
-                    let diffHtml = "";
+                    const current = window.HPOState.data.activeSearchSpace || {};
+                    diffContainer.replaceChildren();
+
                     for (const [key, val] of Object.entries(proposed)) {
                         const curVal = current[key];
                         if (!curVal) continue;
-                        
-                        diffHtml += `<span class="diff-line info"># Parameter: ${paramLabel(key)} (${key})</span>`;
-                        
+
+                        const infoLine = document.createElement("span");
+                        infoLine.className = "diff-line info";
+                        infoLine.textContent = `# Parameter: ${paramLabel(key)} (${key})`;
+                        diffContainer.appendChild(infoLine);
+
                         if (curVal.type === "categorical") {
                             const curActive = curVal.active || [];
                             const newActive = val.active || [];
-                            
-                            diffHtml += `<span class="diff-line removed">- active: [${curActive.join(", ")}]</span>`;
-                            diffHtml += `<span class="diff-line added">+ active: [${newActive.join(", ")}]</span>`;
+
+                            const removedLine = document.createElement("span");
+                            removedLine.className = "diff-line removed";
+                            removedLine.textContent = `- active: [${curActive.join(", ")}]`;
+                            diffContainer.appendChild(removedLine);
+
+                            const addedLine = document.createElement("span");
+                            addedLine.className = "diff-line added";
+                            addedLine.textContent = `+ active: [${newActive.join(", ")}]`;
+                            diffContainer.appendChild(addedLine);
                         } else {
                             const curMin = curVal.min;
                             const curMax = curVal.max;
                             const newMin = val.min !== undefined ? val.min : curMin;
                             const newMax = val.max !== undefined ? val.max : curMax;
-                            
+
                             if (curMin !== newMin || curMax !== newMax) {
-                                diffHtml += `<span class="diff-line removed">- range: [${curMin}, ${curMax}]</span>`;
-                                diffHtml += `<span class="diff-line added">+ range: [${newMin}, ${newMax}]</span>`;
+                                const removedLine = document.createElement("span");
+                                removedLine.className = "diff-line removed";
+                                removedLine.textContent = `- range: [${curMin}, ${curMax}]`;
+                                diffContainer.appendChild(removedLine);
+
+                                const addedLine = document.createElement("span");
+                                addedLine.className = "diff-line added";
+                                addedLine.textContent = `+ range: [${newMin}, ${newMax}]`;
+                                diffContainer.appendChild(addedLine);
                             }
                         }
                     }
-                    
-                    if (diffHtml) {
-                        diffContainer.innerHTML = diffHtml;
+
+                    if (diffContainer.childNodes.length > 0) {
                         banner.classList.remove("hidden");
                     } else {
                         banner.classList.add("hidden");
@@ -1540,7 +1585,7 @@
                 }
                 const data = await res.json();
                 if (data.success) {
-                    activeConfig = data.space;
+                    window.HPOState.data.activeSearchSpace = data.space;
                     renderSearchSpace();
                     fetchPendingChanges();
                 }
@@ -1567,11 +1612,9 @@
             }
         }
 
-        let globalStudyHealthReason = "";
-
         async function checkStudyHealth(throwOnError = false) {
             try {
-                const res = await fetch(`/api/study_health?study_name=${studyName}`);
+                const res = await fetch(`/api/study_health?study_name=${window.HPOState.session.studyName}`);
                 if (!res.ok) {
                     if (throwOnError) throw new Error("HTTP error " + res.status);
                     return;
@@ -1587,7 +1630,7 @@
                 
                 if (!card) return;
                 
-                globalStudyHealthReason = data.health_reason || "";
+                window.HPOState.data.studyHealthReason = data.health_reason || "";
                 
                 // Reset classes
                 card.className = "card health-card";
@@ -1635,7 +1678,7 @@
         
         async function dismissHealthAlert() {
             try {
-                const res = await fetch(`/api/dismiss_coordinator_nudge?study_name=${studyName}`, {
+                const res = await fetch(`/api/dismiss_coordinator_nudge?study_name=${window.HPOState.session.studyName}`, {
                     method: "POST"
                 });
                 if (res.ok) {
@@ -1647,11 +1690,11 @@
         }
 
         function copyDiagnosticPrompt() {
-            const activeSpace = activeConfig || {};
+            const activeSpace = window.HPOState.data.activeSearchSpace || {};
             const diagnosticPayload = {
-                anomaly: globalStudyHealthReason || "unknown anomaly",
+                anomaly: window.HPOState.data.studyHealthReason || "unknown anomaly",
                 active_search_space: activeSpace,
-                recent_trials: globalTrials.slice(0, 3).map(t => ({
+                recent_trials: window.HPOState.data.trials.slice(0, 3).map(t => ({
                     trial_id: t.number,
                     state: t.state,
                     params: t.params,
@@ -1683,13 +1726,11 @@ Please analyze the failure and suggest one policy action (update_search_space or
             });
         }
 
-        let pollFailures = 0;
-        let pollTimeoutId = null;
-
+        /* --- Section: Polling / Data fetch --- */
         async function pollData() {
-            if (pollTimeoutId) {
-                clearTimeout(pollTimeoutId);
-                pollTimeoutId = null;
+            if (window.HPOState.poll.timeoutId) {
+                clearTimeout(window.HPOState.poll.timeoutId);
+                window.HPOState.poll.timeoutId = null;
             }
             try {
                 await Promise.all([
@@ -1698,18 +1739,18 @@ Please analyze the failure and suggest one policy action (update_search_space or
                     checkStudyHealth(true)
                 ]);
                 
-                pollFailures = 0;
+                window.HPOState.poll.failures = 0;
                 const offlineBanner = document.getElementById("offline-banner");
                 if (offlineBanner) {
                     offlineBanner.classList.add("hidden");
                 }
                 
-                pollTimeoutId = setTimeout(pollData, 2000);
+                window.HPOState.poll.timeoutId = setTimeout(pollData, 2000);
             } catch (err) {
                 console.warn("Poll attempt failed:", err);
-                pollFailures++;
+                window.HPOState.poll.failures++;
                 
-                const delayMs = Math.min(2000 * Math.pow(2, pollFailures - 1), 32000);
+                const delayMs = Math.min(2000 * Math.pow(2, window.HPOState.poll.failures - 1), 32000);
                 const delayS = Math.round(delayMs / 1000);
                 
                 const offlineBanner = document.getElementById("offline-banner");
@@ -1721,7 +1762,7 @@ Please analyze the failure and suggest one policy action (update_search_space or
                     backoffTimer.textContent = delayS;
                 }
                 
-                pollTimeoutId = setTimeout(pollData, delayMs);
+                window.HPOState.poll.timeoutId = setTimeout(pollData, delayMs);
             }
         }
 
@@ -1768,9 +1809,9 @@ Please analyze the failure and suggest one policy action (update_search_space or
                 const { trials, paretoSet } = getDisplayTrialsForCurrentStudy();
                 updateParallelCoordinates(trials, paretoSet);
                 updateAshaTimeline(trials);
-            } else if (viewId === 'dashboard' && latestStudyData) {
+            } else if (viewId === 'dashboard' && window.HPOState.data.latestStudyData) {
                 const { trials, paretoSet } = getDisplayTrialsForCurrentStudy();
-                updateChart(trials, paretoSet, latestStudyData.study_directions);
+                updateChart(trials, paretoSet, window.HPOState.data.latestStudyData.study_directions);
             }
             
             if (updateHash) {
@@ -1865,6 +1906,7 @@ Please analyze the failure and suggest one policy action (update_search_space or
             }
         }
 
+        /* --- Section: Worker setup --- */
         function updateColabSnippet() {
             // Determine current host base URL
             const protocol = window.location.protocol;
@@ -1976,9 +2018,6 @@ python worker_minimal.py`;
         }
 
         // Global storage for persistent column widths across data updates/renders
-        if (!window.hpoColumnWidths) {
-            window.hpoColumnWidths = {};
-        }
 
         function makeTableResizable(table, force = false) {
             if (!table) return;
@@ -2002,15 +2041,15 @@ python worker_minimal.py`;
                 const colLabel = col.textContent.trim().replace(/[\s\r\n\t]+/g, " ");
 
                 // Restore custom width if previously saved
-                if (window.hpoColumnWidths[colLabel] !== undefined) {
-                    col.style.width = `${window.hpoColumnWidths[colLabel]}px`;
+                if (window.HPOState.ui.columnWidths[colLabel] !== undefined) {
+                    col.style.width = `${window.HPOState.ui.columnWidths[colLabel]}px`;
                 } else {
                     // Initialize if visible and width is not already set
                     if (force || !col.style.width || col.style.width === "0px") {
                         const w = col.offsetWidth;
                         if (w > 0) {
                             col.style.width = `${w}px`;
-                            window.hpoColumnWidths[colLabel] = w;
+                            window.HPOState.ui.columnWidths[colLabel] = w;
                         }
                     }
                 }
@@ -2031,7 +2070,7 @@ python worker_minimal.py`;
                         const newWidth = Math.max(50, startWidth + dx);
                         col.style.width = `${newWidth}px`;
                         // Save the width dynamically so it is retained across redraws
-                        window.hpoColumnWidths[colLabel] = newWidth;
+                        window.HPOState.ui.columnWidths[colLabel] = newWidth;
                     };
 
                     const onMouseUp = () => {
@@ -2062,7 +2101,7 @@ python worker_minimal.py`;
         }
 
         function changeAccent(accentName, colorHex, glowStyle) {
-            accentColorHex = colorHex;
+            window.HPOState.ui.accentColorHex = colorHex;
             document.documentElement.style.setProperty('--accent-color', colorHex);
             document.documentElement.style.setProperty('--accent-glow', glowStyle);
             const preview = document.getElementById("accent-preview");
@@ -2082,23 +2121,23 @@ python worker_minimal.py`;
             localStorage.setItem("hpo_accent_glow", glowStyle);
 
             // Update charts dynamically to match accent
-            if (paretoChart && paretoChart.data && paretoChart.data.datasets) {
-                paretoChart.data.datasets.forEach(ds => {
+            if (window.HPOState.charts.pareto.instance && window.HPOState.charts.pareto.instance.data && window.HPOState.charts.pareto.instance.data.datasets) {
+                window.HPOState.charts.pareto.instance.data.datasets.forEach(ds => {
                     if (ds.label === "Active Running") {
                         ds.backgroundColor = colorHex;
                         ds.borderColor = colorHex;
                     }
                 });
-                paretoChart.update("none");
+                window.HPOState.charts.pareto.instance.update("none");
             }
             
-            if (historyChart && historyChart.data && historyChart.data.datasets) {
-                historyChart.data.datasets.forEach(ds => {
+            if (window.HPOState.charts.modalHistory.instance && window.HPOState.charts.modalHistory.instance.data && window.HPOState.charts.modalHistory.instance.data.datasets) {
+                window.HPOState.charts.modalHistory.instance.data.datasets.forEach(ds => {
                     if (ds.yAxisID === "y-dice") {
                         ds.borderColor = colorHex;
                     }
                 });
-                historyChart.update("none");
+                window.HPOState.charts.modalHistory.instance.update("none");
             }
 
             // Redraw Parallel Coordinates if visible to apply new hover/accent color
@@ -2137,12 +2176,12 @@ python worker_minimal.py`;
                     if (select) {
                         select.innerHTML = "";
                         const allStudies = new Set(data.studies);
-                        allStudies.add(studyName);
+                        allStudies.add(window.HPOState.session.studyName);
                         Array.from(allStudies).sort().forEach(study => {
                             const opt = document.createElement("option");
                             opt.value = study;
                             opt.textContent = study;
-                            if (study === studyName) opt.selected = true;
+                            if (study === window.HPOState.session.studyName) opt.selected = true;
                             select.appendChild(opt);
                         });
                     }
@@ -2154,30 +2193,30 @@ python worker_minimal.py`;
 
         async function fetchStudyDetails(throwOnError = false) {
             try {
-                const res = await fetch(`/api/study_details?study_name=${studyName}`);
+                const res = await fetch(`/api/study_details?study_name=${window.HPOState.session.studyName}`);
                 if (!res.ok) {
                     if (throwOnError) throw new Error("HTTP error " + res.status);
                     return;
                 }
                 const data = await res.json();
-                 latestStudyData = data;
+                 window.HPOState.data.latestStudyData = data;
 
                  // Reset review dismiss when trial count changes or study changes
                  const completedCount = data.trials.filter(t => t.state === "COMPLETE" || t.state === "FAIL" || t.state === "PRUNED").length;
-                 if (lastCompletedCount !== null && completedCount !== lastCompletedCount) {
-                     reviewPillDismissed = false;
+                 if (window.HPOState.telemetry.lastCompletedCount !== null && completedCount !== window.HPOState.telemetry.lastCompletedCount) {
+                     window.HPOState.ui.reviewPillDismissed = false;
                  }
-                 lastCompletedCount = completedCount;
+                 window.HPOState.telemetry.lastCompletedCount = completedCount;
 
                 // Lightweight, jitter-free updates run every poll.
                 const select = document.getElementById("study-select");
                 if (select) select.value = data.study_name;
                 document.getElementById("workers-count-val").innerText = data.running_workers;
 
-                globalTrials = data.trials;
-                if (data.hpo_config) globalHpoConfig = data.hpo_config;
-                globalEvalInsights = data.eval_insights || null;
-                globalReview = data.review || null;
+                window.HPOState.data.trials = data.trials;
+                if (data.hpo_config) window.HPOState.data.hpoConfig = data.hpo_config;
+                window.HPOState.data.evalInsights = data.eval_insights || null;
+                window.HPOState.data.review = data.review || null;
                 const nComplete = data.completed_count ?? data.trials.filter((t) => t.state === "COMPLETE").length;
                 updateStatConfidenceBanner(data.statistical_confidence || "low", nComplete);
                 renderPastReviews(data.past_reviews || []);
@@ -2185,8 +2224,8 @@ python worker_minimal.py`;
                 syncTelemetryFromTrials([...data.trials].sort((a, b) => b.number - a.number));
 
                 // Defer heavy DOM/chart rebuilds while a trial modal is open.
-                if (isModalOpen) {
-                    pendingRender = true;
+                if (window.HPOState.ui.isModalOpen) {
+                    window.HPOState.render.pendingRender = true;
                     return;
                 }
                 renderStudyDetails(data);
@@ -2196,6 +2235,7 @@ python worker_minimal.py`;
             }
         }
 
+        /* --- Section: Table / Trials --- */
         function renderStudyDetails(data) {
             if (!data) return;
 
@@ -2213,8 +2253,8 @@ python worker_minimal.py`;
                         if (!paramKeys.includes(k)) paramKeys.push(k);
                     });
                 });
-            } else if (activeConfig) {
-                Object.keys(activeConfig).forEach(k => {
+            } else if (window.HPOState.data.activeSearchSpace) {
+                Object.keys(window.HPOState.data.activeSearchSpace).forEach(k => {
                     if (!k.startsWith("_") && !paramKeys.includes(k)) paramKeys.push(k);
                 });
             }
@@ -2230,8 +2270,8 @@ python worker_minimal.py`;
                 const evalLabel = ev.dice_fixed_label || "Score (eval)";
 
                 const headerSnapshot = `${lossLabel}|${scoreLabel}|${evalLabel}|${ev.enabled}|${paramKeys.join(",")}`;
-                if (headerSnapshot !== lastDashboardHeaderSnapshot) {
-                    lastDashboardHeaderSnapshot = headerSnapshot;
+                if (headerSnapshot !== window.HPOState.render.lastDashboardHeaderSnapshot) {
+                    window.HPOState.render.lastDashboardHeaderSnapshot = headerSnapshot;
 
                     let thHtml = `
                         <th class="col-trial">Trial</th>
@@ -2258,9 +2298,9 @@ python worker_minimal.py`;
                 renderAnalysisTrialsTable(data.trials || []);
                 const totalCols = 4 + (ev.enabled ? 1 : 0) + paramKeys.length + 2;
                 tbody.innerHTML = `<tr><td colspan="${totalCols}" style="text-align: center; color: var(--text-muted); padding: 40px;">No trials registered yet. Run training worker.</td></tr>`;
-                lastTrialsSnapshot = "empty";
-                lastFanovaPayload = "empty";
-                lastFanovaRenderKey = null;
+                window.HPOState.render.lastTrialsSnapshot = "empty";
+                window.HPOState.render.lastFanovaPayload = "empty";
+                window.HPOState.render.lastFanovaRenderKey = null;
                 return;
             }
 
@@ -2269,8 +2309,8 @@ python worker_minimal.py`;
 
             // Rebuild when trial data or Top-15% filter state changes.
             const snapshot = buildTrialsSnapshot(data.trials, paretoSet);
-            if (snapshot === lastTrialsSnapshot) return;
-            lastTrialsSnapshot = snapshot;
+            if (snapshot === window.HPOState.render.lastTrialsSnapshot) return;
+            window.HPOState.render.lastTrialsSnapshot = snapshot;
 
             renderAnalysisTrialsTable(displayTrials);
 
@@ -2357,8 +2397,8 @@ python worker_minimal.py`;
             }
 
             const fanovaSnap = buildFanovaSnapshot(data.trials);
-            if (fanovaSnap !== lastFanovaPayload) {
-                lastFanovaPayload = fanovaSnap;
+            if (fanovaSnap !== window.HPOState.render.lastFanovaPayload) {
+                window.HPOState.render.lastFanovaPayload = fanovaSnap;
                 fetchFanova();
             }
         }
@@ -2369,7 +2409,7 @@ python worker_minimal.py`;
                 .sort((a, b) => a.number - b.number)[0];
 
             if (!running) {
-                telemetryTrack.trialNumber = null;
+                window.HPOState.telemetry.trialNumber = null;
                 setWorkerRunIndicator(false, "Worker idle");
                 return;
             }
@@ -2377,8 +2417,8 @@ python worker_minimal.py`;
             const epochSuffix =
                 running.latest_epoch != null ? ` · E${running.latest_epoch}` : "";
             const label = `Trial #${running.number}${epochSuffix}`;
-            if (telemetryTrack.trialNumber !== running.number) {
-                telemetryTrack.trialNumber = running.number;
+            if (window.HPOState.telemetry.trialNumber !== running.number) {
+                window.HPOState.telemetry.trialNumber = running.number;
             }
             setWorkerRunIndicator(true, label);
         }
@@ -2389,19 +2429,17 @@ python worker_minimal.py`;
             return `${mins}m ${secs}s`;
         }
 
-        let lastFanovaRenderKey = null;
-
         async function fetchFanova() {
             try {
-                const res = await fetch(`/api/fanova?study_name=${studyName}`);
+                const res = await fetch(`/api/fanova?study_name=${window.HPOState.session.studyName}`);
                 if (!res.ok) return;
                 const data = await res.json();
                 const container = document.getElementById("fanova-container");
 
                 if (!data.success) {
                     const msg = data.message || "Unable to compute fANOVA.";
-                    if (lastFanovaRenderKey === msg) return;
-                    lastFanovaRenderKey = msg;
+                    if (window.HPOState.render.lastFanovaRenderKey === msg) return;
+                    window.HPOState.render.lastFanovaRenderKey = msg;
                     container.innerHTML = `<div class="fanova-empty">${msg}</div>`;
                     return;
                 }
@@ -2410,8 +2448,8 @@ python worker_minimal.py`;
                     (a, b) => b[1] - a[1]
                 );
                 const renderKey = sorted.map(([k, v]) => `${k}:${v.toFixed(6)}`).join("|");
-                if (renderKey === lastFanovaRenderKey) return;
-                lastFanovaRenderKey = renderKey;
+                if (renderKey === window.HPOState.render.lastFanovaRenderKey) return;
+                window.HPOState.render.lastFanovaRenderKey = renderKey;
 
                 let html = "";
                 sorted.forEach(([param, value]) => {
@@ -2435,13 +2473,11 @@ python worker_minimal.py`;
 
 
 
-        let activeConfig = {};
-
         async function fetchSearchSpace() {
             try {
                 const res = await fetch("/api/search_space");
                 if (!res.ok) return;
-                activeConfig = await res.json();
+                window.HPOState.data.activeSearchSpace = await res.json();
                 renderSearchSpace();
                 renderDashboardSearchSpaceSummary();
                 fetchPendingChanges();
@@ -2455,7 +2491,7 @@ python worker_minimal.py`;
             if (!summaryDiv) return;
             
             let html = "";
-            Object.entries(activeConfig).forEach(([param, val]) => {
+            Object.entries(window.HPOState.data.activeSearchSpace).forEach(([param, val]) => {
                 const label = paramLabel(param);
                 let boundsStr = "";
                 if (val.type === "float" || val.type === "float_log" || val.type === "int") {
@@ -2484,10 +2520,8 @@ python worker_minimal.py`;
             summaryDiv.innerHTML = html;
         }
 
-        const modifiedParams = new Set();
-
         function markParamModified(param) {
-            modifiedParams.add(param);
+            window.HPOState.ui.modifiedParams.add(param);
             const groupEl = document.getElementById(`group-${param}`);
             const indicatorEl = document.getElementById(`indicator-${param}`);
             const applyBtn = document.getElementById(`apply-btn-${param}`);
@@ -2498,7 +2532,7 @@ python worker_minimal.py`;
         }
 
         function clearParamModified(param) {
-            modifiedParams.delete(param);
+            window.HPOState.ui.modifiedParams.delete(param);
             const groupEl = document.getElementById(`group-${param}`);
             const indicatorEl = document.getElementById(`indicator-${param}`);
             const applyBtn = document.getElementById(`apply-btn-${param}`);
@@ -2508,11 +2542,12 @@ python worker_minimal.py`;
             if (applyBtn) applyBtn.style.display = "none";
         }
 
+        /* --- Section: Search space --- */
         function renderSearchSpace() {
             const container = document.getElementById("search-space-controls");
             let html = "";
 
-            Object.entries(activeConfig).forEach(([param, val]) => {
+            Object.entries(window.HPOState.data.activeSearchSpace).forEach(([param, val]) => {
                 const label = paramLabel(param);
                 
                 if (val.type === "float" || val.type === "float_log") {
@@ -2563,7 +2598,7 @@ python worker_minimal.py`;
         }
 
         function togglePill(param, option, btn) {
-            const list = activeConfig[param].active;
+            const list = window.HPOState.data.activeSearchSpace[param].active;
             const val = isNaN(option) ? option : Number(option);
             const index = list.indexOf(val);
             
@@ -2580,7 +2615,7 @@ python worker_minimal.py`;
         }
 
         async function applySingleParamConstraints(param) {
-            const val = activeConfig[param];
+            const val = window.HPOState.data.activeSearchSpace[param];
             if (val.type === "float" || val.type === "float_log" || val.type === "int") {
                 const minEl = document.getElementById(`${param}-min`);
                 const maxEl = document.getElementById(`${param}-max`);
@@ -2594,12 +2629,12 @@ python worker_minimal.py`;
                 const res = await fetch("/api/update_search_space", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(activeConfig)
+                    body: JSON.stringify(window.HPOState.data.activeSearchSpace)
                 });
                 const data = await res.json();
                 if (data.success) {
                     if (data.space) {
-                        activeConfig = data.space;
+                        window.HPOState.data.activeSearchSpace = data.space;
                     }
                     clearParamModified(param);
                     renderDashboardSearchSpaceSummary();
@@ -2611,14 +2646,15 @@ python worker_minimal.py`;
             }
         }
 
+        /* --- Section: Charts --- */
         function updateChart(trials, paretoSet, directions) {
             const ctx = document.getElementById("pareto-chart").getContext("2d");
             
             const isSingleObj = !directions || directions.length === 1;
             const isMinimize = directions && directions[0] === "MINIMIZE";
             
-            const lossLabel = globalHpoConfig?.metric_loss_label || "BCE";
-            const scoreLabel = globalHpoConfig?.metric_score_label || "Dice";
+            const lossLabel = window.HPOState.data.hpoConfig?.metric_loss_label || "BCE";
+            const scoreLabel = window.HPOState.data.hpoConfig?.metric_score_label || "Dice";
             const metricLabel = isMinimize ? lossLabel : scoreLabel;
             
             const scatterPoints = [];
@@ -2691,8 +2727,8 @@ python worker_minimal.py`;
                     datasets.push({
                         label: "Active Running",
                         data: runningPoints,
-                        backgroundColor: accentColorHex,
-                        borderColor: accentColorHex,
+                        backgroundColor: window.HPOState.ui.accentColorHex,
+                        borderColor: window.HPOState.ui.accentColorHex,
                         pointRadius: 8,
                         pointHoverRadius: 11,
                         hoverBorderWidth: 2,
@@ -2746,8 +2782,8 @@ python worker_minimal.py`;
                     datasets.push({
                         label: "Active Running",
                         data: runningPoints,
-                        backgroundColor: accentColorHex,
-                        borderColor: accentColorHex,
+                        backgroundColor: window.HPOState.ui.accentColorHex,
+                        borderColor: window.HPOState.ui.accentColorHex,
                         pointRadius: 8,
                         pointHoverRadius: 11,
                         hoverBorderWidth: 2,
@@ -2800,25 +2836,25 @@ python worker_minimal.py`;
                 }
             };
             
-            if (paretoChart) {
-                paretoChart.data.datasets = datasets;
-                if (paretoChart.options.scales?.x?.title) {
-                    paretoChart.options.scales.x.title.text = getXText();
+            if (window.HPOState.charts.pareto.instance) {
+                window.HPOState.charts.pareto.instance.data.datasets = datasets;
+                if (window.HPOState.charts.pareto.instance.options.scales?.x?.title) {
+                    window.HPOState.charts.pareto.instance.options.scales.x.title.text = getXText();
                 }
-                if (paretoChart.options.scales?.y?.title) {
-                    paretoChart.options.scales.y.title.text = getYText();
+                if (window.HPOState.charts.pareto.instance.options.scales?.y?.title) {
+                    window.HPOState.charts.pareto.instance.options.scales.y.title.text = getYText();
                 }
-                if (paretoChart.options.plugins?.tooltip?.callbacks) {
-                    paretoChart.options.plugins.tooltip.callbacks.label = getTooltipLabel;
+                if (window.HPOState.charts.pareto.instance.options.plugins?.tooltip?.callbacks) {
+                    window.HPOState.charts.pareto.instance.options.plugins.tooltip.callbacks.label = getTooltipLabel;
                 }
                 
-                if (totalPoints > lastParetoPointCount) {
-                    paretoChart.update({ duration: 280, easing: "easeOutQuart" });
+                if (totalPoints > window.HPOState.render.lastParetoPointCount) {
+                    window.HPOState.charts.pareto.instance.update({ duration: 280, easing: "easeOutQuart" });
                 } else {
-                    paretoChart.update("none");
+                    window.HPOState.charts.pareto.instance.update("none");
                 }
             } else {
-                paretoChart = new Chart(ctx, {
+                window.HPOState.charts.pareto.instance = new Chart(ctx, {
                     data: { datasets },
                     options: {
                         responsive: true,
@@ -2857,7 +2893,7 @@ python worker_minimal.py`;
                     }
                 });
             }
-            lastParetoPointCount = totalPoints;
+            window.HPOState.render.lastParetoPointCount = totalPoints;
         }
 
         function dist2(v, w) { return (v.x - w.x) ** 2 + (v.y - w.y) ** 2; }
@@ -2868,8 +2904,6 @@ python worker_minimal.py`;
             t = Math.max(0, Math.min(1, t));
             return Math.sqrt(dist2(p, { x: v.x + t * (w.x - v.x), y: v.y + t * (w.y - v.y) }));
         }
-
-        let parallelCoordinatesHoveredTrial = null;
 
         function updateParallelCoordinates(trials, paretoSet) {
             const canvas = document.getElementById("parallel-coordinates-chart");
@@ -2933,8 +2967,8 @@ python worker_minimal.py`;
             paramKeys.forEach(k => {
                 axes.push({ key: k, label: k.replace(/_/g, " "), type: "param" });
             });
-            axes.push({ key: "dice", label: globalHpoConfig?.metric_score_label || "Dice", type: "metric" });
-            axes.push({ key: "bce", label: globalHpoConfig?.metric_loss_label || "BCE", type: "metric" });
+            axes.push({ key: "dice", label: window.HPOState.data.hpoConfig?.metric_score_label || "Dice", type: "metric" });
+            axes.push({ key: "bce", label: window.HPOState.data.hpoConfig?.metric_loss_label || "BCE", type: "metric" });
 
             const N = axes.length;
             const xPad = 50;
@@ -2943,12 +2977,12 @@ python worker_minimal.py`;
             // Compute bounds (min/max or options list) for each axis
             axes.forEach(axis => {
                 if (axis.type === "param") {
-                    let spec = activeConfig?.[axis.key];
+                    let spec = window.HPOState.data.activeSearchSpace?.[axis.key];
                     if (!spec) {
-                        spec = globalHpoConfig?.active_search_space?.[axis.key];
+                        spec = window.HPOState.data.hpoConfig?.active_search_space?.[axis.key];
                     }
-                    if (!spec && latestStudyData?.active_search_space) {
-                        spec = latestStudyData.active_search_space[axis.key];
+                    if (!spec && window.HPOState.data.latestStudyData?.active_search_space) {
+                        spec = window.HPOState.data.latestStudyData.active_search_space[axis.key];
                     }
                     
                     if (spec) {
@@ -3058,8 +3092,8 @@ python worker_minimal.py`;
                         }
                     });
                     
-                    if (parallelCoordinatesHoveredTrial !== closestTrial) {
-                        parallelCoordinatesHoveredTrial = closestTrial;
+                    if (window.HPOState.ui.parallelCoordinatesHoveredTrial !== closestTrial) {
+                        window.HPOState.ui.parallelCoordinatesHoveredTrial = closestTrial;
                         canvas.style.cursor = closestTrial ? "pointer" : "default";
                         updateParallelCoordinates(currentTrials, canvas.currentParetoSet || new Set());
                     }
@@ -3067,13 +3101,13 @@ python worker_minimal.py`;
                 
                 canvas.addEventListener("mousemove", onMouseMove);
                 canvas.addEventListener("mouseleave", () => {
-                    parallelCoordinatesHoveredTrial = null;
+                    window.HPOState.ui.parallelCoordinatesHoveredTrial = null;
                     updateParallelCoordinates(canvas.currentTrials || [], canvas.currentParetoSet || new Set());
                 });
                 
                 canvas.addEventListener("click", () => {
-                    if (parallelCoordinatesHoveredTrial) {
-                        openTrialDetails(parallelCoordinatesHoveredTrial.number);
+                    if (window.HPOState.ui.parallelCoordinatesHoveredTrial) {
+                        openTrialDetails(window.HPOState.ui.parallelCoordinatesHoveredTrial.number);
                     }
                 });
             }
@@ -3127,7 +3161,7 @@ python worker_minimal.py`;
 
             trials.forEach(t => {
                 const isPareto = paretoSet.has(t.number);
-                const isHovered = parallelCoordinatesHoveredTrial && parallelCoordinatesHoveredTrial.number === t.number;
+                const isHovered = window.HPOState.ui.parallelCoordinatesHoveredTrial && window.HPOState.ui.parallelCoordinatesHoveredTrial.number === t.number;
                 
                 const pts = [];
                 for (let i = 0; i < N; i++) {
@@ -3151,9 +3185,9 @@ python worker_minimal.py`;
                 ctx.shadowBlur = 0;
                 
                 if (isHovered) {
-                    ctx.strokeStyle = accentColorHex;
+                    ctx.strokeStyle = window.HPOState.ui.accentColorHex;
                     ctx.lineWidth = 3.5;
-                    ctx.shadowColor = accentColorHex;
+                    ctx.shadowColor = window.HPOState.ui.accentColorHex;
                     ctx.shadowBlur = 8;
                 } else if (isPareto) {
                     ctx.strokeStyle = "rgba(245, 158, 11, 0.95)";
@@ -3183,15 +3217,15 @@ python worker_minimal.py`;
                 ctx.setLineDash([]);
             });
 
-            if (parallelCoordinatesHoveredTrial) {
-                const t = parallelCoordinatesHoveredTrial;
+            if (window.HPOState.ui.parallelCoordinatesHoveredTrial) {
+                const t = window.HPOState.ui.parallelCoordinatesHoveredTrial;
                 ctx.shadowBlur = 0;
                 ctx.fillStyle = "rgba(15, 23, 42, 0.92)";
-                ctx.strokeStyle = accentColorHex;
+                ctx.strokeStyle = window.HPOState.ui.accentColorHex;
                 ctx.lineWidth = 1;
                 
-                const lossLabel = globalHpoConfig?.metric_loss_label || "Loss";
-                const scoreLabel = globalHpoConfig?.metric_score_label || "Score";
+                const lossLabel = window.HPOState.data.hpoConfig?.metric_loss_label || "Loss";
+                const scoreLabel = window.HPOState.data.hpoConfig?.metric_score_label || "Score";
                 const tooltipText = `Trial #${t.number} [${t.state}] — ${scoreLabel}: ${t.dice !== null ? t.dice.toFixed(4) : "N/A"}, ${lossLabel}: ${t.bce !== null ? t.bce.toFixed(4) : "N/A"}`;
                 ctx.font = "600 0.75rem Inter, system-ui, sans-serif";
                 const textWidth = ctx.measureText(tooltipText).width;
@@ -3206,7 +3240,7 @@ python worker_minimal.py`;
                 ctx.fill();
                 ctx.stroke();
                 
-                ctx.fillStyle = accentColorHex;
+                ctx.fillStyle = window.HPOState.ui.accentColorHex;
                 ctx.textAlign = "left";
                 ctx.fillText(tooltipText, boxX + 10, boxY + 17);
             }
@@ -3225,8 +3259,8 @@ python worker_minimal.py`;
                 return;
             }
 
-            const scoreLabel = globalHpoConfig?.metric_score_label || "Dice";
-            const lossLabel = globalHpoConfig?.metric_loss_label || "BCE";
+            const scoreLabel = window.HPOState.data.hpoConfig?.metric_score_label || "Dice";
+            const lossLabel = window.HPOState.data.hpoConfig?.metric_loss_label || "BCE";
 
             let html = "";
             validTrials.forEach(t => {
@@ -3305,56 +3339,79 @@ python worker_minimal.py`;
             container.innerHTML = html;
         }
 
-        // Clickable Row Detailed Inspector Modal
+        /* --- Section: Modal --- */
         function openTrialDetails(trialNum) {
-            const trial = globalTrials.find(t => t.number === trialNum);
+            const trial = window.HPOState.data.trials.find(t => t.number === trialNum);
             if (!trial) return;
 
-            document.getElementById("modal-trial-title").innerText = `Trial ${trial.number} Inspector [ID: ${trial.trial_id}]`;
+            const titleEl = document.getElementById("modal-trial-title");
+            if (titleEl) titleEl.textContent = `Trial ${trial.number} Inspector [ID: ${trial.trial_id}]`;
 
-            // Populate parameters
             const pGrid = document.getElementById("modal-params");
-            let paramsHtml = "";
+            pGrid.replaceChildren();
             const displayParams = trial.params_display || trial.params;
             Object.entries(displayParams).forEach(([k, v]) => {
-                const displayVal = typeof v === 'number' ? (v % 1 === 0 ? v : v.toExponential(2)) : v;
-                paramsHtml += `<div class="param-item">
-                    <div class="param-label">${k.replace(/_/g, ' ')}</div>
-                    <div class="param-value">${displayVal}</div>
-                </div>`;
+                const displayVal = typeof v === "number" ? (v % 1 === 0 ? String(v) : v.toExponential(2)) : String(v);
+                const item = document.createElement("div");
+                item.className = "param-item";
+                const label = document.createElement("div");
+                label.className = "param-label";
+                label.textContent = k.replace(/_/g, " ");
+                const value = document.createElement("div");
+                value.className = "param-value";
+                value.textContent = displayVal;
+                item.appendChild(label);
+                item.appendChild(value);
+                pGrid.appendChild(item);
             });
             if (trial.dice_eval_fixed != null) {
-                paramsHtml += `<div class="param-item">
-                    <div class="param-label">${globalHpoConfig?.eval_protocol?.dice_fixed_label || 'Dice (eval)'}</div>
-                    <div class="param-value">${trial.dice_eval_fixed.toFixed(4)}</div>
-                </div>`;
+                const item = document.createElement("div");
+                item.className = "param-item";
+                const label = document.createElement("div");
+                label.className = "param-label";
+                label.textContent = window.HPOState.data.hpoConfig?.eval_protocol?.dice_fixed_label || "Dice (eval)";
+                const value = document.createElement("div");
+                value.className = "param-value";
+                value.textContent = trial.dice_eval_fixed.toFixed(4);
+                item.appendChild(label);
+                item.appendChild(value);
+                pGrid.appendChild(item);
             }
-            // State row — badge color reflects outcome
-            let ledClass = 'complete';
+            let ledClass = "complete";
             let stateLabel = trial.state;
-            
-            if (trial.state === 'COMPLETE') {
-                ledClass = 'complete';
-                stateLabel = 'DONE';
-            } else if (trial.oom_triggered || trial.failure_tag === 'OOM' || trial.state === 'FAIL') {
-                ledClass = 'fail';
-                stateLabel = (trial.oom_triggered || trial.failure_tag === 'OOM') ? 'FAILED (OOM)' : 'FAILED';
-            } else if (trial.state === 'PRUNED') {
-                ledClass = 'pruned';
-                stateLabel = 'PRUNED';
-            } else if (trial.state === 'RUNNING') {
-                ledClass = 'running';
-                stateLabel = 'RUNNING';
+
+            if (trial.state === "COMPLETE") {
+                ledClass = "complete";
+                stateLabel = "DONE";
+            } else if (trial.oom_triggered || trial.failure_tag === "OOM" || trial.state === "FAIL") {
+                ledClass = "fail";
+                stateLabel = (trial.oom_triggered || trial.failure_tag === "OOM") ? "FAILED (OOM)" : "FAILED";
+            } else if (trial.state === "PRUNED") {
+                ledClass = "pruned";
+                stateLabel = "PRUNED";
+            } else if (trial.state === "RUNNING") {
+                ledClass = "running";
+                stateLabel = "RUNNING";
             }
-            
-            paramsHtml += `<div class="param-item status-param-item status-cell-${ledClass}">
-                <div class="param-label">State</div>
-                <div class="param-value status-cell-wrapper" style="margin-top: 4px;">
-                    <span class="led-light ${ledClass}"></span>
-                    <span class="status-text">${stateLabel}</span>
-                </div>
-            </div>`;
-            pGrid.innerHTML = paramsHtml;
+
+            const statusItem = document.createElement("div");
+            statusItem.className = `param-item status-param-item status-cell-${ledClass}`;
+            const statusLabel = document.createElement("div");
+            statusLabel.className = "param-label";
+            statusLabel.textContent = "State";
+            const statusValue = document.createElement("div");
+            statusValue.className = "param-value status-cell-wrapper";
+            statusValue.style.marginTop = "4px";
+            const led = document.createElement("span");
+            led.className = `led-light ${ledClass}`;
+            const statusText = document.createElement("span");
+            statusText.className = "status-text";
+            statusText.textContent = stateLabel;
+            statusValue.appendChild(led);
+            statusValue.appendChild(statusText);
+            statusItem.appendChild(statusLabel);
+            statusItem.appendChild(statusValue);
+            pGrid.appendChild(statusItem);
 
             // OOM section
             const oomSection = document.getElementById("modal-oom-section");
@@ -3374,7 +3431,7 @@ python worker_minimal.py`;
             // Populate reasoning — only call it "AI Optimization Rationale" if a coordinator log exists
             const reasoningEl = document.getElementById("modal-reasoning");
             const rationaleTitle = document.getElementById("modal-rationale-title");
-            const logic = globalThoughtLogs.find(l => l.trial_id === trial.trial_id);
+            const logic = window.HPOState.data.thoughtLogs.find(l => l.trial_id === trial.trial_id);
             if (logic) {
                 rationaleTitle.innerText = "Coordinator Rationale";
                 reasoningEl.innerText = `"${logic.predicted_outcome_rationale}"`;
@@ -3385,7 +3442,7 @@ python worker_minimal.py`;
 
             // Open the modal first so the CSS transition starts immediately, then build
             // the chart on the next frame so synchronous Chart.js work doesn't jank it.
-            isModalOpen = true;
+            window.HPOState.ui.isModalOpen = true;
             document.getElementById("detail-modal").classList.add("active");
             requestAnimationFrame(() => updateModalChart(trial.history));
         }
@@ -3398,10 +3455,10 @@ python worker_minimal.py`;
 
         function closeModalDirect() {
             document.getElementById("detail-modal").classList.remove("active");
-            isModalOpen = false;
-            if (pendingRender) {
-                pendingRender = false;
-                renderStudyDetails(latestStudyData);
+            window.HPOState.ui.isModalOpen = false;
+            if (window.HPOState.render.pendingRender) {
+                window.HPOState.render.pendingRender = false;
+                renderStudyDetails(window.HPOState.data.latestStudyData);
             }
         }
 
@@ -3409,9 +3466,9 @@ python worker_minimal.py`;
             const ctx = document.getElementById("modal-history-chart").getContext("2d");
             
             if (!history || history.length === 0) {
-                if (historyChart) {
-                    historyChart.destroy();
-                    historyChart = null;
+                if (window.HPOState.charts.modalHistory.instance) {
+                    window.HPOState.charts.modalHistory.instance.destroy();
+                    window.HPOState.charts.modalHistory.instance = null;
                 }
                 ctx.clearRect(0, 0, ctx.canvas.width || 400, ctx.canvas.height || 200);
                 return;
@@ -3421,31 +3478,31 @@ python worker_minimal.py`;
             const diceData = history.map(h => h.dice);
             const bceData = history.map(h => h.bce);
 
-            const lossLabel = globalHpoConfig?.metric_loss_label || "BCE";
-            const scoreLabel = globalHpoConfig?.metric_score_label || "Dice";
+            const lossLabel = window.HPOState.data.hpoConfig?.metric_loss_label || "BCE";
+            const scoreLabel = window.HPOState.data.hpoConfig?.metric_score_label || "Dice";
             const lossText = lossLabel.toLowerCase().includes("loss") ? lossLabel : `${lossLabel} Loss`;
             const scoreText = scoreLabel.toLowerCase().includes("score") || scoreLabel.toLowerCase().includes("accuracy") ? scoreLabel : `${scoreLabel} Score`;
 
             // Reuse the existing chart instance (cheap update) instead of destroy + recreate,
             // which is the main cost when opening a trial.
-            if (historyChart) {
-                historyChart.data.labels = labels;
-                historyChart.data.datasets[0].data = diceData;
-                historyChart.data.datasets[0].label = scoreText;
-                historyChart.data.datasets[0].borderColor = accentColorHex;
-                historyChart.data.datasets[1].data = bceData;
-                historyChart.data.datasets[1].label = lossText;
-                if (historyChart.options.scales?.["y-dice"]?.title) {
-                    historyChart.options.scales["y-dice"].title.text = scoreText;
+            if (window.HPOState.charts.modalHistory.instance) {
+                window.HPOState.charts.modalHistory.instance.data.labels = labels;
+                window.HPOState.charts.modalHistory.instance.data.datasets[0].data = diceData;
+                window.HPOState.charts.modalHistory.instance.data.datasets[0].label = scoreText;
+                window.HPOState.charts.modalHistory.instance.data.datasets[0].borderColor = window.HPOState.ui.accentColorHex;
+                window.HPOState.charts.modalHistory.instance.data.datasets[1].data = bceData;
+                window.HPOState.charts.modalHistory.instance.data.datasets[1].label = lossText;
+                if (window.HPOState.charts.modalHistory.instance.options.scales?.["y-dice"]?.title) {
+                    window.HPOState.charts.modalHistory.instance.options.scales["y-dice"].title.text = scoreText;
                 }
-                if (historyChart.options.scales?.["y-bce"]?.title) {
-                    historyChart.options.scales["y-bce"].title.text = lossText;
+                if (window.HPOState.charts.modalHistory.instance.options.scales?.["y-bce"]?.title) {
+                    window.HPOState.charts.modalHistory.instance.options.scales["y-bce"].title.text = lossText;
                 }
-                historyChart.update("none");
+                window.HPOState.charts.modalHistory.instance.update("none");
                 return;
             }
 
-            historyChart = new Chart(ctx, {
+            window.HPOState.charts.modalHistory.instance = new Chart(ctx, {
                 type: "line",
                 data: {
                     labels,
@@ -3453,7 +3510,7 @@ python worker_minimal.py`;
                         {
                             label: scoreText,
                             data: diceData,
-                            borderColor: accentColorHex,
+                            borderColor: window.HPOState.ui.accentColorHex,
                             backgroundColor: "transparent",
                             yAxisID: "y-dice",
                             tension: 0.15,
@@ -3500,6 +3557,125 @@ python worker_minimal.py`;
                 }
             });
         }
+
+        /* --- Section: Bootstrap --- */
+        document.addEventListener("DOMContentLoaded", () => {
+            initHpoMarks();
+            syncTopPerformersFilterCheckboxes();
+            
+            // Load and apply saved interface style configurations
+            const savedAccentName = localStorage.getItem("hpo_accent_name") || "cyan";
+            const savedAccentColor = localStorage.getItem("hpo_accent_color") || "#06b6d4";
+            const savedAccentGlow = localStorage.getItem("hpo_accent_glow") || "rgba(6, 182, 212, 0.3)";
+            changeAccent(savedAccentName, savedAccentColor, savedAccentGlow);
+
+            const savedStatusStyle = localStorage.getItem("hpo_status_style") || "full";
+            setStatusStyle(savedStatusStyle);
+
+            fetchSearchSpace();
+            fetchHpoConfig();
+            const reviewPill = document.getElementById("dashboard-review-pill");
+            if (reviewPill) {
+                reviewPill.addEventListener("click", copyReviewPrompt);
+                reviewPill.addEventListener("keydown", (e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        copyReviewPrompt();
+                    }
+                });
+            }
+            const reviewCloseBtn = document.getElementById("dashboard-review-close");
+            if (reviewCloseBtn) {
+                reviewCloseBtn.addEventListener("click", (e) => {
+                    e.stopPropagation();
+                    dismissReviewPill();
+                });
+            }
+            populateStudyList();
+            const studySelect = document.getElementById("study-select");
+            if (studySelect) {
+                studySelect.addEventListener("change", (e) => {
+                    const val = e.target.value;
+                    const url = new URL(window.location);
+                    url.searchParams.set('study', val);
+                    window.history.pushState({}, '', url);
+                    window.HPOState.session.studyName = val;
+                    // Reset/poll the details for the new study immediately
+                    fetchStudyDetails();
+                    fetchFanova();
+                });
+            }
+            // Auto-fetch ngrok tunnel URL if established
+            fetch("/api/tunnel_url")
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success && data.url) {
+                        const input = document.getElementById("ngrok-url-input");
+                        if (input) {
+                            input.value = data.url;
+                            updateColabSnippet();
+                        }
+                    }
+                })
+                .catch(err => console.error("Error fetching tunnel URL:", err));
+
+            // Dynamic labels sync for evaluation protocol inputs
+            const scoreLabelInput = document.getElementById("eval-metric-score-label");
+            if (scoreLabelInput) {
+                scoreLabelInput.addEventListener("input", (e) => {
+                    const val = e.target.value.trim() || "Score";
+                    const trainLabelInput = document.getElementById("eval-dice-train-label");
+                    const fixedLabelInput = document.getElementById("eval-dice-fixed-label");
+                    if (trainLabelInput) {
+                        trainLabelInput.placeholder = `${val} (train)`;
+                    }
+                    if (fixedLabelInput) {
+                        fixedLabelInput.placeholder = `${val} (eval)`;
+                    }
+                });
+            }
+
+            pollData();
+
+            // Initial routing setup
+            handleRouting();
+        });
+
+        window.addEventListener("hashchange", handleRouting);
+
+
+
+        // --- Window exports for inline HTML handlers ---
+        window.toggleSidebar = toggleSidebar;
+        window.toggleAccentPanel = toggleAccentPanel;
+        window.toggleExportPanel = toggleExportPanel;
+        window.changeAccent = changeAccent;
+        window.setStatusStyle = setStatusStyle;
+        window.exportParetoFront = exportParetoFront;
+        window.exportStudyConfig = exportStudyConfig;
+        window.exportFullTrialsJson = exportFullTrialsJson;
+        window.copyTrialsToJson = copyTrialsToJson;
+        window.exportTrialsToCsv = exportTrialsToCsv;
+        window.copyDiagnosticPrompt = copyDiagnosticPrompt;
+        window.dismissHealthAlert = dismissHealthAlert;
+        window.toggleResolutionCard = toggleResolutionCard;
+        window.switchSettingsTab = switchSettingsTab;
+        window.applyPendingChanges = applyPendingChanges;
+        window.discardPendingChanges = discardPendingChanges;
+        window.saveEvalProtocol = saveEvalProtocol;
+        window.copyColabSnippet = copyColabSnippet;
+        window.saveIdeSettings = saveIdeSettings;
+        window.closeModal = closeModal;
+        window.closeModalDirect = closeModalDirect;
+        window.toggleReviewFlag = toggleReviewFlag;
+        window.openTrialDetails = openTrialDetails;
+        window.copyTrialConfigToClipboard = copyTrialConfigToClipboard;
+        window.applySingleParamConstraints = applySingleParamConstraints;
+        window.togglePill = togglePill;
+        window.onTopPerformersFilterChange = onTopPerformersFilterChange;
+        window.syncColabUrl = syncColabUrl;
+        window.initHpoMarks = initHpoMarks;
+        }());
     </script>
 </body>
 </html>
