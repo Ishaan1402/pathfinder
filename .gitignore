@@ -11,6 +11,8 @@ ENV/
 # Databases & local HPO runs
 *.db
 *.db-journal
+*.db-shm
+*.db-wal
 *.sqlite
 hpo_studies.db
 
@@ -19,6 +21,16 @@ hpo_studies.db
 *.pth
 *.ckpt
 checkpoints/
+
+# Local HPO runtime artifacts (state lives in SQLite, not on disk)
+active_search_space.json
+hpo_config.json
+pending_changes.json
+.hpo_status.json
+
+# Local IDE + MCP config (see README MCP section)
+.mcp.json
+.claude/settings.local.json
 
 # System files
 .DS_Store

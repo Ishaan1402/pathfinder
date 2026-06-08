@@ -1,7 +1,13 @@
-mcp>=1.1.2
-optuna>=3.6.0
-optuna-dashboard>=0.15.0
-sqlalchemy>=2.0.0
-psycopg2-binary>=2.9.0
-pydantic>=2.0
-numpy>=1.20.0
+# Runtime dependencies. Bounds cap the next major version to avoid surprise breaking changes
+# while still allowing security/patch updates. Dev/test extras live in requirements-dev.txt.
+mcp>=1.1,<2
+optuna>=3.6,<5
+optuna-dashboard>=0.15,<1
+sqlalchemy>=2.0,<3
+psycopg2-binary>=2.9,<3
+pydantic>=2.0,<3
+numpy>=1.20,<3
+scikit-learn>=1.0,<2
+fastapi>=0.110,<1
+uvicorn>=0.23,<1
+requests>=2.28,<3
