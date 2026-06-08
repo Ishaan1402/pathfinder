@@ -731,6 +731,15 @@ def get_gui():
         return html
     return "<h3>index.html not found</h3>"
 
+
+@app.get("/styles.css")
+def get_styles():
+    styles_path = os.path.join(os.path.dirname(__file__), "web", "styles.css")
+    if os.path.exists(styles_path):
+        return FileResponse(styles_path, media_type="text/css")
+    raise HTTPException(status_code=404, detail="styles.css not found")
+
+
 @app.get("/colab_worker.py")
 def get_colab_worker():
     worker_path = os.path.join(os.path.dirname(__file__), "colab_worker.py")
