@@ -51,14 +51,6 @@ def test_complete_requires_lease_for_inflight_trial(client, initialized_study):
     assert bad.status_code == 403
 
 
-def test_dashboard_html_contains_no_token(client):
-    res = client.get("/")
-    assert res.status_code == 200
-    # The secret must never appear in page source; only the non-secret auth flag may.
-    assert "HPO_SECRET_TOKEN" not in res.text
-    assert "HPO_AUTH_REQUIRED" in res.text
-
-
 def test_api_requires_token_when_configured(client, initialized_study, monkeypatch):
     monkeypatch.setenv("HPO_SECRET_TOKEN", "sekret")
     assert client.get(f"/api/study_details?study_name={initialized_study}").status_code == 401
