@@ -946,11 +946,12 @@ def save_study_review(
     if trials_evaluated <= 0:
         raise ValueError("No trials have been evaluated yet. Cannot save review.")
     
-    # 2. Verify trials_evaluated is the count of completed trials
-    if trials_evaluated != completed_count:
+    # 2. Verify trials_evaluated matches finished-trial idempotency window (COMPLETE+PRUNED+FAIL)
+    evaluated_count = count_evaluated_trials(study)
+    if trials_evaluated != evaluated_count:
         raise ValueError(
             f"Idempotency key trials_evaluated ({trials_evaluated}) must match "
-            f"actual count of completed trials ({completed_count})."
+            f"actual count of evaluated trials ({evaluated_count})."
         )
 
     # 3. Compare cited trial score with actual best trial score
