@@ -1,0 +1,42 @@
+---
+description: HPO coordinator review procedure (episodic, read-heavy, write-once per trial window)
+globs: broker.py,hpo_mcp_server.py,hpo_coordinator.py,colab_worker.py,hpo_config.json,active_search_space.json,index.html,.hpo_status.json
+alwaysApply: false
+---
+
+# Pathfinder Coordinator Review
+
+Optuna (TPE) in `broker.py` is the hot path. The Colab worker must never wait on a language model. You are an **episodic coordinator**: you interpret results, flag bad policy, and apply bounded changes through the `@pathfinder` MCP server. Do not turn the per-trial suggest into an LLM call.
+
+## Active Divergence Warning Trigger
+
+If the workspace status file `.hpo_status.json` has `health_tier` set to `"watch"` or `"intervene"`:
+1. Immediately notify the user in your response that the Pathfinder study is in a warning state (`Watch` or `Intervene`) and explain the `health_reason` cited in the status file.
+2. Proactively offer to execute the **Pathfinder Coordinator Review** (the 7-step procedure below). Do not wait for the user to ask.
+3. Recommend using the `/goal` slash command to resolve the stagnation or suggesting specific active bounds changes.
+
+## When to run a review
+
+Only on an explicit user request, or when one of these is true. Do **not** auto-run from a hook.
+
+- The `.hpo_status.json` indicates a warning state (`Watch` or `Intervene`), or
+- The dashboard shows "Coordinator review suggested", or
+- ~5 completed/pruned trials have elapsed since the last review, or
+- The user is about to change the search space or eval protocol, or
+- The user starts editing tuning code (the files this rule is scoped to).
+
+Run a review **at most once per trial window** unless `review_recommended` is set or the user passes `force`.
+
+## Seven-step procedure
+
+1. Call `get_study_data(study_name)` to retrieve the compacted review packet (which contains active search space, config, and study telemetry).
+2. Read dynamic metric labels from the packet's `project_context`.
+3. Rate search health 1–5. Cite trials by number. Prefer fixed-eval (deploy) Dice over train Dice.
+4. Perform safety review of VRAM predictions and check coordinator accuracy.
+5. Pick exactly one policy action: `no_change`, `update_search_space` (propose), or `enqueue_one_manual_trial`.
+6. If proposing active search space changes, call `update_search_space(study_name, space_config, apply=False)`. If enqueuing a manual trial, pass the parameter dictionary as the `manual_trial` argument when calling `submit_agent_review`.
+7. Call `submit_agent_review(study_name, summary, health_rating, policy_action, reasons=...)` to persist the audit trail.
+
+## Multi-IDE safety
+
+`submit_agent_review` is idempotent per trial window. If Cursor and Antigravity are both open, a duplicate review for the same number of finished trials returns the existing review (`duplicate: true`); do not retry with `force` to override it unless the user asks. Coordinator work is read-heavy and write-once per cycle.
