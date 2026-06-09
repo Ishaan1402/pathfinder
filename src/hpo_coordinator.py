@@ -1008,11 +1008,12 @@ def save_study_review(
         review.set_reasons(reasons)
         session.add(review)
 
-        # Clear coordinator pending flag / update health tier on review save
+        # Record review window without masking underlying study health
         status = session.query(StudyStatus).filter_by(study_name=study_name).first()
         if status:
-            status.health_tier = "healthy"
-            status.health_reason = f"Reviewed on trial window {trials_evaluated}"
+            tier, reason = compute_health_tier(study, study_name)
+            status.health_tier = tier
+            status.health_reason = reason
 
         session.flush()
         saved = review.to_dict()

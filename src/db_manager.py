@@ -37,6 +37,18 @@ def init_db():
     except Exception:
         existing_tables = set()
 
+    # Drop legacy study_status table if it contains the obsolete coordinator_pending column
+    if "study_status" in existing_tables:
+        try:
+            from sqlalchemy import text
+            cols = {c["name"] for c in inspector.get_columns("study_status")}
+            if "coordinator_pending" in cols:
+                with engine.begin() as conn:
+                    conn.execute(text("DROP TABLE study_status"))
+                existing_tables.remove("study_status")
+        except Exception as e:
+            print(f"Migration: Error dropping legacy study_status table: {e}")
+
     # Create all defined tables in schema
     Base.metadata.create_all(bind=engine)
 

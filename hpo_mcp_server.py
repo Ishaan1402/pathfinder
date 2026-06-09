@@ -75,7 +75,7 @@ def initialize_study(
                 study_name=study_name,
                 storage=DATABASE_URL,
                 direction="maximize",
-                pruner=optuna.pruners.MedianPruner(n_startup_trials=3, n_warmup_steps=3),
+                pruner=optuna.pruners.MedianPruner(n_startup_trials=3, n_warmup_steps=10),
                 load_if_exists=True
             )
 

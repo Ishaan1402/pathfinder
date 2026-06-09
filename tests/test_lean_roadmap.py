@@ -46,7 +46,7 @@ class TestLeanRoadmap(unittest.TestCase):
         init_db()
 
     def setUp(self):
-        self.study_name = "lean_" + self._testMethodName
+        self.study_name = "test_lean_" + self._testMethodName
         self.study = optuna.create_study(
             study_name=self.study_name,
             storage=os.environ["HPO_DATABASE_URL"],
