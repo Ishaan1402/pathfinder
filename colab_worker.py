@@ -29,7 +29,9 @@ except ImportError:
                 "and HPO_BROKER_URL is not set to download hpo_client.py from the broker."
             )
         try:
-            headers = {"ngrok-skip-browser-warning": "1"}
+            headers = {}
+            if "ngrok-free.app" in broker_url or "ngrok.io" in broker_url:
+                headers["ngrok-skip-browser-warning"] = "1"
             token = os.getenv("HPO_SECRET_TOKEN")
             if token:
                 headers["X-HPO-Token"] = token
@@ -136,11 +138,17 @@ BROKER_URL = os.getenv("HPO_BROKER_URL")
 if not BROKER_URL:
     raise ValueError("HPO_BROKER_URL environment variable must be set to connect to Pathfinder.")
 
-# ngrok free tier: skip interstitial; always POST JSON to API paths
-BROKER_HTTP_HEADERS = {
-    "Content-Type": "application/json",
-    "ngrok-skip-browser-warning": "1",
-}
+# HTTP Headers helper: skip interstitial only for ngrok urls
+def _get_headers(url: str) -> Dict[str, str]:
+    headers = {"Content-Type": "application/json"}
+    if url and ("ngrok-free.app" in url or "ngrok.io" in url):
+        headers["ngrok-skip-browser-warning"] = "1"
+    token = os.getenv("HPO_SECRET_TOKEN")
+    if token:
+        headers["X-HPO-Token"] = token
+    return headers
+
+BROKER_HTTP_HEADERS = _get_headers(BROKER_URL or "")
 
 def broker_get(path: str, timeout: int = 30):
     base = BROKER_URL.rstrip("/")
@@ -149,9 +157,17 @@ def broker_get(path: str, timeout: int = 30):
             base = base[: -len(suffix)]
     if not path.startswith("/"):
         path = "/" + path
+        
+    headers = {}
+    if "ngrok-free.app" in base or "ngrok.io" in base:
+        headers["ngrok-skip-browser-warning"] = "1"
+    token = os.getenv("HPO_SECRET_TOKEN")
+    if token:
+        headers["X-HPO-Token"] = token
+        
     return requests.get(
         base + path,
-        headers={"ngrok-skip-browser-warning": "1"},
+        headers=headers,
         timeout=timeout,
     )
 

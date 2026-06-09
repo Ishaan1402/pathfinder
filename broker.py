@@ -1877,12 +1877,17 @@ def api_complete_trial(req: CompleteTrialRequest):
 
 @app.get("/api/tunnel_url")
 def api_get_tunnel_url():
-    """Returns the active ngrok tunnel URL if established."""
+    """Returns the active remote broker URL if established (Cloudflare, ngrok, or Tailscale)."""
     try:
         with get_db_session() as session:
+            # Try key remote_broker_url first, fallback to ngrok_tunnel_url
             row = session.query(SystemConfiguration).filter_by(
-                study_name="_global", config_key="ngrok_tunnel_url"
+                study_name="_global", config_key="remote_broker_url"
             ).first()
+            if not row:
+                row = session.query(SystemConfiguration).filter_by(
+                    study_name="_global", config_key="ngrok_tunnel_url"
+                ).first()
             return {"success": True, "url": row.config_value if row else None}
     except Exception as e:
         return {"success": False, "error": str(e)}
@@ -1971,9 +1976,13 @@ def api_mcp_info():
         "mcp_tools": [
             "initialize_study",
             "get_study_data",
+            "validate_search_space",
             "update_search_space",
+            "delete_study",
+            "generate_model_card",
             "submit_agent_review",
-            "generate_model_card"
+            "validate_integration",
+            "get_study_cards",
         ]
     }
 
@@ -1988,20 +1997,44 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, default=8000, help="Binding port")
     parser.add_argument("--daemon", action="store_true", help="Start background health daemon thread")
     parser.add_argument("--tunnel", action="store_true", help="Start background ngrok tunnel")
+    parser.add_argument("--tunnel-provider", default=None, choices=["ngrok", "cloudflare", "none"], help="Tunneling provider (ngrok, cloudflare, or none)")
+    parser.add_argument("--tunnel-url", default=None, help="Pre-configured static remote tunnel/broker URL (e.g. Cloudflare custom domain)")
     
     args = parser.parse_args()
 
+    # Resolve tunnel provider
+    tunnel_provider = args.tunnel_provider
+    if tunnel_provider is None:
+        env_provider = os.getenv("HPO_TUNNEL_PROVIDER")
+        if env_provider:
+            tunnel_provider = env_provider.lower()
+        elif args.tunnel or os.getenv("HPO_TUNNEL_ENABLED") == "1":
+            tunnel_provider = "ngrok"
+        else:
+            tunnel_provider = "none"
+
+    # Resolve static tunnel URL
+    static_tunnel_url = args.tunnel_url or os.getenv("HPO_TUNNEL_URL")
+    if static_tunnel_url and tunnel_provider == "none":
+        tunnel_provider = "cloudflare"
+
     # Network safety: refuse to expose the broker beyond loopback (or via a tunnel) without a
     # token. This is the single most important guard for the tunneled threat model.
-    tunnel_requested = args.tunnel or os.getenv("HPO_TUNNEL_ENABLED") == "1"
+    tunnel_requested = (tunnel_provider != "none")
     is_loopback = args.host in ("127.0.0.1", "localhost", "::1")
+    
     if (not is_loopback or tunnel_requested) and not os.environ.get("HPO_SECRET_TOKEN"):
         raise SystemExit(
-            "Refusing to start: exposing the broker beyond loopback (non-loopback --host or "
-            "--tunnel) without auth is unsafe. Set HPO_SECRET_TOKEN, or use --host 127.0.0.1 "
-            "for local-only use."
+            "Refusing to start: exposing the broker beyond loopback (non-loopback --host for Tailscale or "
+            "tunneling for Cloudflare/ngrok) without authentication is unsafe.\n"
+            "Please set the HPO_SECRET_TOKEN environment variable to secure the broker, "
+            "or bind to local loopback only (use --host 127.0.0.1) for local-only use."
         )
     
+    if not is_loopback and os.environ.get("HPO_SECRET_TOKEN"):
+        print(f"🔒 Secure Private VPN/Tailscale Network Mode enabled. Binding to {args.host}:{args.port}")
+        print("   HPO_SECRET_TOKEN is active. Workers must supply a valid token to connect.")
+
     # 1. Start daemon thread if requested (notify-only health monitor; no auto-LLM).
     daemon_enabled = args.daemon or os.getenv("HPO_DAEMON_ENABLED") == "1"
 
@@ -2014,9 +2047,37 @@ if __name__ == "__main__":
         )
         d_thread.start()
         
-    # 2. Start ngrok tunnel if requested
-    tunnel_enabled = args.tunnel or os.getenv("HPO_TUNNEL_ENABLED") == "1"
-    if tunnel_enabled:
+    # 2. Process Static Tunnel / Cloudflare mode
+    if tunnel_provider == "cloudflare" or static_tunnel_url:
+        if not static_tunnel_url:
+            print("Error: --tunnel-url or HPO_TUNNEL_URL environment variable must be provided for Cloudflare/static tunnel provider.")
+            raise SystemExit(1)
+        
+        # Persist the static URL in SQLite under SystemConfiguration so dashboard and workers can fetch it
+        try:
+            from src.db_manager import get_db_session
+            from src.schema import SystemConfiguration
+            with get_db_session() as session:
+                session.merge(SystemConfiguration(
+                    study_name="_global",
+                    config_key="remote_broker_url",
+                    config_value=static_tunnel_url
+                ))
+                # For backwards compatibility, write to the old key too
+                session.merge(SystemConfiguration(
+                    study_name="_global",
+                    config_key="ngrok_tunnel_url",
+                    config_value=static_tunnel_url
+                ))
+                session.commit()
+            print(f"\n==============================================")
+            print(f"🔥 Remote broker URL established (Static/Cloudflare): {static_tunnel_url}")
+            print(f"==============================================\n")
+        except Exception as db_err:
+            print(f"Error saving remote broker URL: {db_err}")
+
+    # 3. Start ngrok tunnel if requested and no static URL was provided
+    elif tunnel_provider == "ngrok":
         import subprocess
         import requests
         import time
@@ -2043,11 +2104,16 @@ if __name__ == "__main__":
                                     print(f"🔥 Ngrok tunnel established: {public_url}")
                                     print(f"==============================================\n")
                                     
-                                    # Persist in SQLite under SystemConfiguration so dashboard can fetch it
+                                    # Persist in SQLite under SystemConfiguration
                                     try:
                                         from src.db_manager import get_db_session
                                         from src.schema import SystemConfiguration
                                         with get_db_session() as session:
+                                            session.merge(SystemConfiguration(
+                                                study_name="_global",
+                                                config_key="remote_broker_url",
+                                                config_value=public_url
+                                            ))
                                             session.merge(SystemConfiguration(
                                                 study_name="_global",
                                                 config_key="ngrok_tunnel_url",

@@ -5,7 +5,7 @@ Copy this next to your training code, fill in `train_one_epoch`, and run it on y
 fork the 600-line bridge-crack `colab_worker.py`.
 
 Setup:
-    export HPO_BROKER_URL="https://<your-tunnel>.ngrok-free.app"
+    export HPO_BROKER_URL="https://hpo.mycustomdomain.com"  # Or your Cloudflare/ngrok/Tailscale URL
     export HPO_STUDY_NAME="my_study"
     python worker_minimal.py
 """

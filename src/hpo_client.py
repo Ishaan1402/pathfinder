@@ -32,10 +32,9 @@ import requests
 
 DEFAULT_TIMEOUT = 120
 
-# ngrok free tier: skip the browser interstitial and always send JSON.
+# Client headers defaults
 _HEADERS = {
     "Content-Type": "application/json",
-    "ngrok-skip-browser-warning": "1",
 }
 
 
@@ -86,8 +85,9 @@ class TrialSession:
     def _get_headers(self) -> Dict[str, str]:
         headers = {
             "Content-Type": "application/json",
-            "ngrok-skip-browser-warning": "1",
         }
+        if self.broker_url and ("ngrok-free.app" in self.broker_url or "ngrok.io" in self.broker_url):
+            headers["ngrok-skip-browser-warning"] = "1"
         secret_token = os.getenv("HPO_SECRET_TOKEN")
         if secret_token:
             headers["X-HPO-Token"] = secret_token
