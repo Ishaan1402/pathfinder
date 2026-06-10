@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from src.db_manager import get_db_session, DATABASE_URL, init_db
 from src.schema import TrialResult, AgentReasoningLog, StudyStatus, SystemConfiguration, TrialLease, CoordinatorMetric, SuggestMetric
 from src.hpo_config import load_hpo_config, save_hpo_config, normalize_trial_params, param_display_name
+from src.metrics import get_score, get_loss, score_objective_index
 from src.hpo_coordinator import (
     trial_train_resolution as _trial_train_resolution,
     study_eval_insights as _study_eval_insights,
@@ -265,15 +266,20 @@ def _trial_metric_snapshot(
     bce_fixed_attr: str,
     directions: List[Any] = None,
 ) -> Dict[str, Any]:
-    """Dice/BCE for dashboard: completed values, else latest epoch / user_attrs."""
+    """Score/Loss for dashboard: completed values, else latest epoch / user_attrs."""
     bce = dice = dice_eval_fixed = bce_eval_fixed = None
     latest_epoch = trial.user_attrs.get("latest_epoch")
 
     from optuna.study import StudyDirection
+    from src.metrics import _raw_value, loss_objective_index_from_dirs, score_objective_index_from_dirs
 
     if trial.state == TrialState.COMPLETE and (trial.values or trial.value is not None):
         if trial.values and len(trial.values) > 1:
-            bce, dice = trial.values[0], trial.values[1]
+            # Multi-objective: derive indices from directions (not hardcoded 0/1)
+            bce_idx = loss_objective_index_from_dirs(directions or [])
+            score_idx = score_objective_index_from_dirs(directions or [])
+            bce = _raw_value(trial, bce_idx) if bce_idx is not None else None
+            dice = _raw_value(trial, score_idx) if score_idx is not None else None
         else:
             if directions and directions[0] == StudyDirection.MINIMIZE:
                 bce = trial.value
@@ -1165,11 +1171,13 @@ def api_fanova(study_name: str):
             
         importances = {}
         if len(study.directions) > 1:
-            importances = optuna.importance.get_param_importances(
-                study,
-                target=lambda t: t.values[1], # Maximize Dice
-                evaluator=optuna.importance.FanovaImportanceEvaluator()
-            )
+            score_idx = score_objective_index(study)
+            if score_idx is not None:
+                importances = optuna.importance.get_param_importances(
+                    study,
+                    target=lambda t, _idx=score_idx: t.values[_idx] if (t.values and len(t.values) > _idx) else None,
+                    evaluator=optuna.importance.FanovaImportanceEvaluator()
+                )
         else:
             importances = optuna.importance.get_param_importances(
                 study,
@@ -1816,14 +1824,13 @@ def api_complete_trial(req: CompleteTrialRequest):
 
         try:
             prior_trials = [t for t in study.trials if t.number < trial_obj.number and t.state == TrialState.COMPLETE]
-            best_prior_dice = 0.0
+            best_prior_score = 0.0
             if prior_trials:
-                if len(study.directions) > 1:
-                    best_prior_dice = max([t.values[1] for t in prior_trials if t.values and len(t.values) > 1] or [0.0])
-                else:
-                    best_prior_dice = max([t.value for t in prior_trials if t.value is not None] or [0.0])
+                scores = [get_score(t, study) for t in prior_trials]
+                scores = [s for s in scores if s is not None]
+                best_prior_score = max(scores) if scores else 0.0
 
-            actual_improvement = final_score - best_prior_dice
+            actual_improvement = final_score - best_prior_score
             with get_db_session() as session:
                 reasoning_log = session.query(AgentReasoningLog).filter_by(trial_id=req.trial_id).first()
                 if reasoning_log:
@@ -1857,10 +1864,9 @@ def api_complete_trial(req: CompleteTrialRequest):
         completed_scores = []
         for t in study.trials:
             if t.state == TrialState.COMPLETE:
-                if len(study.directions) > 1 and t.values and len(t.values) > 1:
-                    completed_scores.append(t.values[1])
-                elif t.value is not None:
-                    completed_scores.append(t.value)
+                s = get_score(t, study)
+                if s is not None:
+                    completed_scores.append(s)
         best_score = max(completed_scores) if completed_scores else 0.0
 
         return {

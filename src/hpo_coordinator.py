@@ -20,6 +20,7 @@ import json
 from .db_manager import get_db_session, DATABASE_URL
 from .schema import StudyReview, StudyStatus, TrialResult, SystemConfiguration, CompactedPacket
 from .hpo_config import load_hpo_config, normalize_trial_params, param_display_name
+from .metrics import get_score, get_loss, get_best_trial, get_best_score, get_score_values, score_objective_index, _raw_value
 
 # --- Tunables for drift heuristics (deterministic, no model calls) ---
 RECENT_TRIALS_IN_PACKET = 8
@@ -60,10 +61,7 @@ def get_best_primary_score(study) -> Optional[float]:
     completed = [t for t in study.trials if t.state == TrialState.COMPLETE]
     if not completed:
         return None
-    if len(study.directions) > 1:
-        scores = [t.values[1] for t in completed if t.values and len(t.values) > 1]
-        return max(scores) if scores else None
-    return study.best_value
+    return get_best_score(completed, study)
 
 
 def validate_review_fields(
@@ -211,12 +209,8 @@ def build_review_prompt(study_name: str) -> str:
         completed = [t for t in study.trials if t.state == TrialState.COMPLETE]
         stat_confidence = compute_statistical_confidence(len(completed))
         if completed:
-            if len(study.directions) > 1:
-                best_t = max(completed, key=lambda t: t.values[1] if (t.values and len(t.values) > 1) else -float('inf'))
-                score_val = best_t.values[1] if (best_t.values and len(best_t.values) > 1) else 0.0
-            else:
-                best_t = study.best_trial
-                score_val = best_t.value
+            best_t = get_best_trial(completed, study) or study.best_trial
+            score_val = get_score(best_t, study) if best_t else 0.0
             best_trial_info = f"Trial #{best_t.number} with {score_label}: {score_val:.4f}"
     except Exception as e:
         best_trial_info = f"Error reading best trial: {e}"
@@ -595,18 +589,20 @@ def pareto_trial_numbers_deploy_aware(study, hpo_config: Dict[str, Any]) -> List
 
     points: List[tuple] = []
     for t in study.trials:
-        if t.state != TrialState.COMPLETE or not t.values or len(t.values) < 2:
+        if t.state != TrialState.COMPLETE:
+            continue
+        loss_val = get_loss(t, study)
+        score_val = get_score(t, study)
+        if loss_val is None or score_val is None:
             continue
         train_res = trial_train_resolution(t, train_param)
         if deploy_only and low_warn is not None and train_res is not None and train_res < low_warn:
             continue
-        bce = float(t.values[0])
-        dice = float(t.values[1])
         if ev.get("enabled"):
             fd = t.user_attrs.get(dice_fixed_key)
             if fd is not None:
-                dice = float(fd)
-        points.append((t.number, bce, dice))
+                score_val = float(fd)
+        points.append((t.number, float(loss_val), float(score_val)))
 
     if not points:
         try:
@@ -646,16 +642,17 @@ def study_eval_insights(study, config: Dict[str, Any]) -> Dict[str, Any]:
 
     res_summary = {}
     for res, trials in sorted(by_res.items()):
-        dices = [t.values[1] for t in trials if t.values and len(t.values) > 1]
-        fixed_dices = [
+        scores = [get_score(t, study) for t in trials]
+        scores = [s for s in scores if s is not None]
+        fixed_scores = [
             t.user_attrs.get(dice_fixed_key)
             for t in trials
             if t.user_attrs.get(dice_fixed_key) is not None
         ]
         res_summary[res] = {
             "count": len(trials),
-            "best_dice_train": max(dices) if dices else None,
-            "best_dice_fixed": max(fixed_dices) if fixed_dices else None,
+            "best_dice_train": max(scores) if scores else None,
+            "best_dice_fixed": max(fixed_scores) if fixed_scores else None,
         }
 
     # Suppress low-fidelity warning if a valid deploy-scale candidate exists (res >= low_warn)
@@ -669,7 +666,9 @@ def study_eval_insights(study, config: Dict[str, Any]) -> Dict[str, Any]:
                 break
 
     if complete and ev.get("enabled") and fixed_res:
-        best_train = max(complete, key=lambda t: t.values[1] if t.values else -1)
+        best_train = get_best_trial(complete, study)
+        if best_train is None:
+            best_train = complete[0]
         train_res = best_train.params.get(train_param)
         if train_res is not None and low_warn and int(train_res) < int(low_warn) and not valid_deploy_exists:
             warnings.append(
@@ -683,7 +682,7 @@ def study_eval_insights(study, config: Dict[str, Any]) -> Dict[str, Any]:
                 }
             )
         fd = best_train.user_attrs.get(dice_fixed_key)
-        td = best_train.values[1] if best_train.values else None
+        td = get_score(best_train, study)
         if fd is not None and td is not None and (td - fd) > 0.08:
             warnings.append(
                 {
@@ -716,14 +715,12 @@ def study_eval_insights(study, config: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _deploy_or_train_dice(trial, dice_fixed_key: str) -> Optional[float]:
-    """Fixed-eval Dice if present, else train Dice from study values."""
-    fd = trial.user_attrs.get(dice_fixed_key)
+def _deploy_or_train_score(trial, study, score_fixed_key: str) -> Optional[float]:
+    """Fixed-eval score if present, else train score from study values."""
+    fd = trial.user_attrs.get(score_fixed_key)
     if fd is not None:
         return float(fd)
-    if trial.values and len(trial.values) > 1:
-        return float(trial.values[1])
-    return None
+    return get_score(trial, study)
 
 
 def count_evaluated_trials(study) -> int:
@@ -779,7 +776,9 @@ def compute_health_tier(study, study_name: str) -> tuple[str, Optional[str]]:
         improvements = []
         best_so_far = -float("inf")
         for i, t in enumerate(completed):
-            score = t.values[1] if len(t.values) > 1 else t.values[0]
+            score = get_score(t, study)
+            if score is None:
+                continue
             if score > best_so_far + 1e-4:
                 best_so_far = score
                 improvements.append(i)
@@ -799,7 +798,7 @@ def compute_health_tier(study, study_name: str) -> tuple[str, Optional[str]]:
         gaps = []
         for t in completed:
             fd = t.user_attrs.get(dice_fixed_key)
-            td = t.values[1] if len(t.values) > 1 else t.values[0]
+            td = get_score(t, study)
             if fd is not None and td is not None:
                 gaps.append(float(td) - float(fd))
                 
@@ -822,10 +821,8 @@ def compute_health_tier(study, study_name: str) -> tuple[str, Optional[str]]:
             
     # 2. Score variance in top quartile drops below epsilon (stagnation)
     if len(completed) >= 4:
-        scores = []
-        for t in completed:
-            score = t.values[1] if len(t.values) > 1 else t.values[0]
-            scores.append(score)
+        scores = [get_score(t, study) for t in completed]
+        scores = [s for s in scores if s is not None]
         scores.sort(reverse=True)
         top_quartile_count = max(1, len(scores) // 4)
         top_scores = scores[:top_quartile_count]
@@ -957,12 +954,8 @@ def save_study_review(
     # 3. Compare cited trial score with actual best trial score
     confidence = "high"
     if completed_trials:
-        if len(study.directions) > 1:
-            best_t = max(completed_trials, key=lambda t: t.values[1] if (t.values and len(t.values) > 1) else -float('inf'))
-            actual_best_score = best_t.values[1] if (best_t.values and len(best_t.values) > 1) else 0.0
-        else:
-            best_t = study.best_trial
-            actual_best_score = best_t.value
+        best_t = get_best_trial(completed_trials, study) or study.best_trial
+        actual_best_score = get_score(best_t, study)
 
         if cited_best_trial is not None:
             cited_t = None
@@ -971,11 +964,7 @@ def save_study_review(
                     cited_t = t
                     break
             if cited_t:
-                cited_score = (
-                    cited_t.values[1]
-                    if len(study.directions) > 1 and cited_t.values and len(cited_t.values) > 1
-                    else cited_t.value
-                )
+                cited_score = get_score(cited_t, study)
                 if cited_score is not None and actual_best_score is not None:
                     if abs(actual_best_score - cited_score) > 0.10:
                         confidence = "low"
@@ -1027,11 +1016,13 @@ def _fanova_importances(study, config: Dict[str, Any]) -> Dict[str, float]:
         return {}
     try:
         if len(study.directions) > 1:
-            importances = optuna.importance.get_param_importances(
-                study,
-                target=lambda t: t.values[1],
-                evaluator=optuna.importance.FanovaImportanceEvaluator(),
-            )
+            _si = score_objective_index(study)
+            if _si is not None:
+                importances = optuna.importance.get_param_importances(
+                    study,
+                    target=lambda t, idx=_si: t.values[idx] if (t.values and len(t.values) > idx) else None,
+                    evaluator=optuna.importance.FanovaImportanceEvaluator(),
+                )
         else:
             importances = optuna.importance.get_param_importances(
                 study, evaluator=optuna.importance.FanovaImportanceEvaluator()
@@ -1057,8 +1048,8 @@ def _recent_trials_summary(study, config: Dict[str, Any], limit: int) -> List[Di
     ordered = sorted(study.trials, key=lambda t: t.number, reverse=True)[:limit]
     out: List[Dict[str, Any]] = []
     for t in ordered:
-        dice = t.values[1] if (t.state == TrialState.COMPLETE and t.values and len(t.values) > 1) else t.user_attrs.get("latest_dice")
-        bce = t.values[0] if (t.state == TrialState.COMPLETE and t.values and len(t.values) > 1) else t.user_attrs.get("latest_bce")
+        dice = get_score(t, study) if t.state == TrialState.COMPLETE else t.user_attrs.get("latest_dice")
+        bce = get_loss(t, study) if t.state == TrialState.COMPLETE else t.user_attrs.get("latest_bce")
         out.append({
             "number": t.number,
             "state": t.state.name,
