@@ -127,3 +127,58 @@ def get_loss_from_dirs(trial: FrozenTrial, directions: Sequence[StudyDirection])
     if idx is None:
         return None
     return _raw_value(trial, idx)
+
+
+def _trial_metric_snapshot(
+    trial: FrozenTrial,
+    history: List[dict],
+    dice_fixed_attr: str,
+    bce_fixed_attr: str,
+    directions: Sequence[StudyDirection] = None,
+) -> dict:
+    """Score/Loss for dashboard: completed values, else latest epoch / user_attrs."""
+    bce = dice = dice_eval_fixed = bce_eval_fixed = None
+    latest_epoch = trial.user_attrs.get("latest_epoch")
+
+    from optuna.trial import TrialState
+    from optuna.study import StudyDirection
+
+    if trial.state == TrialState.COMPLETE and (trial.values or trial.value is not None):
+        if trial.values and len(trial.values) > 1:
+            bce = get_loss_from_dirs(trial, directions or [])
+            dice = get_score_from_dirs(trial, directions or [])
+        else:
+            if directions and directions[0] == StudyDirection.MINIMIZE:
+                bce = trial.value
+            else:
+                dice = trial.value
+    else:
+        dice = trial.user_attrs.get("latest_dice")
+        bce = trial.user_attrs.get("latest_bce")
+        dice_eval_fixed = trial.user_attrs.get(dice_fixed_attr)
+        bce_eval_fixed = trial.user_attrs.get(bce_fixed_attr)
+
+    if history:
+        last = max(history, key=lambda e: e.get("epoch", 0))
+        latest_epoch = latest_epoch or last.get("epoch")
+        if dice is None:
+            dice = last.get("dice")
+        if bce is None:
+            bce = last.get("bce")
+        if dice_eval_fixed is None:
+            dice_eval_fixed = last.get("dice_eval_fixed")
+        if bce_eval_fixed is None:
+            bce_eval_fixed = last.get("bce_eval_fixed")
+
+    if dice_eval_fixed is None:
+        dice_eval_fixed = trial.user_attrs.get(dice_fixed_attr)
+    if bce_eval_fixed is None:
+        bce_eval_fixed = trial.user_attrs.get(bce_fixed_attr)
+
+    return {
+        "bce": bce,
+        "dice": dice,
+        "dice_eval_fixed": dice_eval_fixed,
+        "bce_eval_fixed": bce_eval_fixed,
+        "latest_epoch": latest_epoch,
+    }

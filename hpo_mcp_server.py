@@ -31,15 +31,27 @@ from src.hpo_coordinator import (
 )
 
 try:
-    from broker import (
+    from src.search_space import (
         suggest_params_from_space,
         _enqueue_single_active_categoricals,
         _finalize_trial_params,
+        load_search_space,
+        save_search_space,
+        _apply_search_space_patch,
     )
 except ImportError:
     suggest_params_from_space = None
     _enqueue_single_active_categoricals = None
     _finalize_trial_params = None
+    load_search_space = None
+    save_search_space = None
+    _apply_search_space_patch = None
+
+try:
+    from src.suggest import get_or_create_study, _enqueue_manual_trial
+except ImportError:
+    get_or_create_study = None
+    _enqueue_manual_trial = None
 
 # Initialize database schema and run migrations on startup
 init_db()
@@ -232,10 +244,6 @@ def update_search_space(study_name: str, space_config: Dict[str, Any], apply: bo
     parameters, out-of-bounds categorical choices, and no-op proposals return an explicit error
     string instead of being silently dropped.
     """
-    # Use the broker's canonical loader/saver so reads are alias-normalized and writes bump the
-    # config version (single source of truth shared with the suggest path).
-    from broker import load_search_space, save_search_space
-
     current_space = load_search_space(study_name)
     validated_proposals: Dict[str, Any] = {}
 
@@ -429,7 +437,6 @@ def submit_agent_review(
             POLICY_ACTIONS,
             validate_review_fields,
         )
-        from broker import _apply_search_space_patch, _enqueue_manual_trial, get_or_create_study, load_search_space
 
         if policy_action not in POLICY_ACTIONS:
             return {
