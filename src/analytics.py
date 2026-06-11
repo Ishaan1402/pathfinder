@@ -2,6 +2,7 @@ import math
 import json
 from typing import List, Dict, Any, Optional
 from optuna.trial import TrialState
+from .metrics import get_score, get_loss
 
 def compress_loss_curve(history: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Compresses a raw epoch-by-epoch history curve into key indicators to save tokens."""
@@ -46,17 +47,12 @@ def bin_trials(study, db_metrics: Dict[int, Any], search_space: Dict[str, Any]) 
     
     for t in trials:
         if t.state == TrialState.COMPLETE:
-            # Try to get score from values (assuming objective 1 is score, or first/second value depending on setup)
-            # In multi-objective, values[0] is BCE (minimize), values[1] is Dice (maximize)
-            score = 0.0
-            loss = 0.0
-            if t.values:
-                if len(t.values) > 1:
-                    loss = t.values[0]
-                    score = t.values[1]
-                else:
-                    score = t.values[0]
-            
+            # Use generic helpers that derive indices from study directions
+            s = get_score(t, study)
+            score = s if s is not None else 0.0
+            l = get_loss(t, study)
+            loss = l if l is not None else 0.0
+
             # Fetch from db_metrics if present
             metric = db_metrics.get(t.number, {})
             score = metric.get("primary_score") if metric.get("primary_score") is not None else score
@@ -231,12 +227,9 @@ def build_compacted_packet(
                     fd = t.user_attrs.get(dice_fixed_key)
                     if fd is not None:
                         score_val = float(fd)
-                    elif t.values and len(t.values) > 1:
-                        score_val = float(t.values[1])
-                    elif t.values:
-                        score_val = float(t.values[0])
                     else:
-                        score_val = 0.0
+                        s = get_score(t, study)
+                        score_val = float(s) if s is not None else 0.0
                         
                     paired_x.append(float(val))
                     paired_y.append(score_val)
