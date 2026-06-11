@@ -141,7 +141,6 @@ class AgentReviewRequest(BaseModel):
     search_space_patch: Optional[Dict[str, Any]] = None
     manual_trial: Optional[Dict[str, Any]] = None
     estimated_score_improvement: Optional[float] = None
-    estimated_dice_improvement: Optional[float] = None
     cited_best_trial: Optional[int] = None
     force: Optional[bool] = False
 
@@ -467,8 +466,12 @@ def api_study_details(study_name: str):
                 },
                 "bce": metrics["bce"],
                 "dice": metrics["dice"],
+                "score": metrics["score"],
+                "loss": metrics["loss"],
                 "dice_eval_fixed": metrics["dice_eval_fixed"],
                 "bce_eval_fixed": metrics["bce_eval_fixed"],
+                "score_eval_fixed": metrics["score_eval_fixed"],
+                "loss_eval_fixed": metrics["loss_eval_fixed"],
                 "train_resolution": train_res,
                 "latest_epoch": metrics["latest_epoch"],
                 "gpu_memory": gpu_memory,
@@ -587,6 +590,8 @@ def api_pareto_front(study_name: str):
                 "trial_id": t._trial_id,
                 "bce": metrics_vals["bce"],
                 "dice": metrics_vals["dice"],
+                "score": metrics_vals["score"],
+                "loss": metrics_vals["loss"],
                 "params": norm_params
             })
             
@@ -656,8 +661,7 @@ def api_agent_review(req: AgentReviewRequest):
                     ))
                 return {"success": False, "error": f"Invalid manual parameters: {val_res['error']}"}
 
-        est_imp = req.estimated_score_improvement if req.estimated_score_improvement is not None else req.estimated_dice_improvement
-        validation = validate_review_fields(est_imp, req.cited_best_trial)
+        validation = validate_review_fields(req.estimated_score_improvement, req.cited_best_trial)
         if not validation["ok"]:
             return {"success": False, "error": "; ".join(validation["errors"])}
         result = save_study_review(
@@ -669,7 +673,7 @@ def api_agent_review(req: AgentReviewRequest):
             prompt_strategy=req.prompt_strategy or "coordinator_review",
             reasons=req.reasons,
             trials_evaluated=trials_evaluated,
-            estimated_dice_improvement=est_imp,
+            estimated_score_improvement=req.estimated_score_improvement,
             cited_best_trial=req.cited_best_trial,
             force=bool(req.force),
         )

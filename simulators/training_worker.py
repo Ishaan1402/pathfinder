@@ -93,7 +93,7 @@ def run_training_worker(
                 agent_model=agent_model,
                 prompt_strategy=prompt_strategy,
                 reasoning=reasoning,
-                estimated_dice_improvement=0.02
+                estimated_score_improvement=0.02
             )
         except Exception as exc:
             print(f"Failed to get suggestion from broker: {exc}")

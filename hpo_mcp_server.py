@@ -30,28 +30,12 @@ from src.hpo_coordinator import (
     load_study_cards
 )
 
-try:
-    from src.search_space import (
-        suggest_params_from_space,
-        _enqueue_single_active_categoricals,
-        _finalize_trial_params,
-        load_search_space,
-        save_search_space,
-        _apply_search_space_patch,
-    )
-except ImportError:
-    suggest_params_from_space = None
-    _enqueue_single_active_categoricals = None
-    _finalize_trial_params = None
-    load_search_space = None
-    save_search_space = None
-    _apply_search_space_patch = None
-
-try:
-    from src.suggest import get_or_create_study, _enqueue_manual_trial
-except ImportError:
-    get_or_create_study = None
-    _enqueue_manual_trial = None
+from src.search_space import (
+    load_search_space,
+    save_search_space,
+    _apply_search_space_patch,
+)
+from src.suggest import get_or_create_study, _enqueue_manual_trial
 
 # Initialize database schema and run migrations on startup
 init_db()
@@ -423,7 +407,6 @@ def submit_agent_review(
     prompt_strategy: str = "coordinator_review",
     reasons: Optional[List[Dict[str, Any]]] = None,
     estimated_score_improvement: Optional[float] = None,
-    estimated_dice_improvement: Optional[float] = None,
     cited_best_trial: Optional[int] = None,
     search_space_patch: Optional[Dict[str, Any]] = None,
     manual_trial: Optional[Dict[str, Any]] = None,
@@ -462,8 +445,7 @@ def submit_agent_review(
                     ))
                 return {"success": False, "error": f"Invalid manual parameters: {val_res['error']}"}
 
-        est_imp = estimated_score_improvement if estimated_score_improvement is not None else estimated_dice_improvement
-        validation = validate_review_fields(est_imp, cited_best_trial)
+        validation = validate_review_fields(estimated_score_improvement, cited_best_trial)
         if not validation["ok"]:
             return {"success": False, "error": "; ".join(validation["errors"])}
 
@@ -476,7 +458,7 @@ def submit_agent_review(
             prompt_strategy=prompt_strategy or "coordinator_review",
             reasons=reasons,
             trials_evaluated=trials_evaluated,
-            estimated_dice_improvement=est_imp,
+            estimated_score_improvement=estimated_score_improvement,
             cited_best_trial=cited_best_trial,
             force=force,
         )

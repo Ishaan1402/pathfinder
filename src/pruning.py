@@ -34,12 +34,12 @@ def _epoch_composite_score(study, trial, epoch: int, ev: Dict[str, Any]) -> Opti
     if isinstance(history, list):
         for entry in history:
             if entry.get("epoch") == epoch:
-                if use_fixed and entry.get("dice_eval_fixed") is not None:
-                    curr_score = entry["dice_eval_fixed"]
-                    curr_loss = entry.get("bce_eval_fixed", entry.get("bce", 0.0))
+                if use_fixed and (entry.get("score_eval_fixed") is not None or entry.get("dice_eval_fixed") is not None):
+                    curr_score = entry.get("score_eval_fixed", entry.get("dice_eval_fixed"))
+                    curr_loss = entry.get("loss_eval_fixed", entry.get("bce_eval_fixed", entry.get("loss", entry.get("bce", 0.0))))
                 else:
-                    curr_score = entry.get("dice")
-                    curr_loss = entry.get("bce")
+                    curr_score = entry.get("score", entry.get("dice"))
+                    curr_loss = entry.get("loss", entry.get("bce"))
                 break
                 
     if curr_score is None or curr_loss is None:
@@ -57,12 +57,12 @@ def _epoch_composite_score(study, trial, epoch: int, ev: Dict[str, Any]) -> Opti
         if isinstance(t_history, list):
             for entry in t_history:
                 if entry.get("epoch") == epoch:
-                    if use_fixed and entry.get("dice_eval_fixed") is not None:
-                        s = entry["dice_eval_fixed"]
-                        l = entry.get("bce_eval_fixed", entry.get("bce", 0.0))
+                    if use_fixed and (entry.get("score_eval_fixed") is not None or entry.get("dice_eval_fixed") is not None):
+                        s = entry.get("score_eval_fixed", entry.get("dice_eval_fixed"))
+                        l = entry.get("loss_eval_fixed", entry.get("bce_eval_fixed", entry.get("loss", entry.get("bce", 0.0))))
                     else:
-                        s = entry.get("dice")
-                        l = entry.get("bce")
+                        s = entry.get("score", entry.get("dice"))
+                        l = entry.get("loss", entry.get("bce"))
                     if s is not None and l is not None:
                         scores.append(float(s))
                         losses.append(float(l))
