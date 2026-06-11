@@ -616,12 +616,12 @@ def pareto_trial_numbers_deploy_aware(study, hpo_config: Dict[str, Any]) -> List
             return []
 
     pareto: List[int] = []
-    for num_i, bce_i, dice_i in points:
+    for num_i, loss_i, score_i in points:
         dominated = False
-        for num_j, bce_j, dice_j in points:
+        for num_j, loss_j, score_j in points:
             if num_i == num_j:
                 continue
-            if bce_j <= bce_i and dice_j >= dice_i and (bce_j < bce_i or dice_j > dice_i):
+            if loss_j <= loss_i and score_j >= score_i and (loss_j < loss_i or score_j > score_i):
                 dominated = True
                 break
         if not dominated:
@@ -658,6 +658,8 @@ def study_eval_insights(study, config: Dict[str, Any]) -> Dict[str, Any]:
             "count": len(trials),
             "best_dice_train": max(scores) if scores else None,
             "best_dice_fixed": max(fixed_scores) if fixed_scores else None,
+            "best_score_train": max(scores) if scores else None,
+            "best_score_fixed": max(fixed_scores) if fixed_scores else None,
         }
 
     # Suppress low-fidelity warning if a valid deploy-scale candidate exists (res >= low_warn)
@@ -715,6 +717,9 @@ def study_eval_insights(study, config: Dict[str, Any]) -> Dict[str, Any]:
         "warnings": warnings,
         "best_deploy_trial_number": best_deploy.number if best_deploy else None,
         "best_deploy_dice_fixed": (
+            best_deploy.user_attrs.get(dice_fixed_key) if best_deploy else None
+        ),
+        "best_deploy_score_fixed": (
             best_deploy.user_attrs.get(dice_fixed_key) if best_deploy else None
         ),
     }
@@ -901,7 +906,7 @@ def save_study_review(
     prompt_strategy: str = "coordinator_review",
     reasons: Optional[List[Dict[str, Any]]] = None,
     trials_evaluated: int = 0,
-    estimated_dice_improvement: Optional[float] = None,
+    estimated_score_improvement: Optional[float] = None,
     cited_best_trial: Optional[int] = None,
     force: bool = False,
 ) -> Dict[str, Any]:
@@ -913,11 +918,11 @@ def save_study_review(
             health_rating = max(1, min(5, int(health_rating)))
         except (TypeError, ValueError):
             health_rating = None
-    if estimated_dice_improvement is not None:
+    if estimated_score_improvement is not None:
         try:
-            estimated_dice_improvement = float(estimated_dice_improvement)
+            estimated_score_improvement = float(estimated_score_improvement)
         except (TypeError, ValueError):
-            estimated_dice_improvement = None
+            estimated_score_improvement = None
 
     # Load study first to run validation assertions
     study = optuna.load_study(study_name=study_name, storage=DATABASE_URL)
@@ -925,7 +930,7 @@ def save_study_review(
     completed_count = len(completed_trials)
 
     if completed_count < MIN_COMPLETED_FOR_FIRST_REVIEW:
-        estimated_dice_improvement = -1.0
+        estimated_score_improvement = -1.0
 
     baseline_best_score = get_best_primary_score(study)
     if baseline_best_score is None:
@@ -986,7 +991,7 @@ def save_study_review(
             model_version=model_version or "unspecified",
             prompt_strategy=prompt_strategy or "coordinator_review",
             trials_evaluated=trials_evaluated,
-            estimated_score_improvement=estimated_dice_improvement,
+            estimated_score_improvement=estimated_score_improvement,
             cited_best_trial=cited_best_trial,
             confidence=confidence,
             baseline_best_score=baseline_best_score,

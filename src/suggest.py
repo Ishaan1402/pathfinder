@@ -58,7 +58,6 @@ class SuggestRequest(BaseModel):
     prompt_strategy: Optional[str] = "tpe_sampler"
     reasoning: Optional[str] = "Autonomous worker suggestion request."
     estimated_score_improvement: Optional[float] = None
-    estimated_dice_improvement: Optional[float] = 0.0
 
 
 def _repair_categorical_param_indices(session: Session, study_name: str) -> int:
@@ -177,7 +176,7 @@ def handle_api_suggest_trial(req: SuggestRequest):
                     session.query(AgentReasoningLog).filter_by(trial_id=trial_id).first()
                 )
                 if not existing:
-                    est_imp = req.estimated_score_improvement if req.estimated_score_improvement is not None else req.estimated_dice_improvement
+                    est_imp = req.estimated_score_improvement
                     session.add(
                         AgentReasoningLog(
                             trial_id=trial_id,

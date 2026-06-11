@@ -46,7 +46,7 @@ def test_complete_requires_lease_for_inflight_trial(client, initialized_study):
         "/api/complete_trial",
         json={"study_name": initialized_study, "trial_id": trial_id, "worker_id": intruder,
               "epoch": 1, "score": 0.6, "loss": 0.4, "weights_path": "m.pt",
-              "history": [{"epoch": 1, "dice": 0.6, "bce": 0.4}], "state": "COMPLETE"},
+              "history": [{"epoch": 1, "score": 0.6, "loss": 0.4, "dice": 0.6, "bce": 0.4}], "state": "COMPLETE"},
     )
     assert bad.status_code == 403
 

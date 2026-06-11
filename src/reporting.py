@@ -20,16 +20,12 @@ class ReportEpochRequest(BaseModel):
     trial_id: int
     worker_id: Optional[str] = None
     epoch: int
-    score: Optional[float] = None
-    loss: Optional[float] = None
-    dice: Optional[float] = None
-    bce: Optional[float] = None
+    score: float
+    loss: float
     gpu_memory: Optional[float] = 0.0
     speed_ips: Optional[float] = 0.0
     score_eval_fixed: Optional[float] = None
     loss_eval_fixed: Optional[float] = None
-    dice_eval_fixed: Optional[float] = None
-    bce_eval_fixed: Optional[float] = None
 
 
 class CompleteTrialRequest(BaseModel):
@@ -37,10 +33,8 @@ class CompleteTrialRequest(BaseModel):
     trial_id: int
     worker_id: Optional[str] = None
     epoch: int
-    score: Optional[float] = None
-    loss: Optional[float] = None
-    dice: Optional[float] = None
-    bce: Optional[float] = None
+    score: float
+    loss: float
     weights_path: str
     history: List[Dict[str, Any]]
     state: Optional[str] = "COMPLETE"
@@ -48,8 +42,6 @@ class CompleteTrialRequest(BaseModel):
     speed_ips: Optional[float] = 0.0
     score_eval_fixed: Optional[float] = None
     loss_eval_fixed: Optional[float] = None
-    dice_eval_fixed: Optional[float] = None
-    bce_eval_fixed: Optional[float] = None
     gpu_model: Optional[str] = None
     max_vram_gb: Optional[float] = None
     oom_triggered: Optional[bool] = None
@@ -86,16 +78,14 @@ def handle_api_report_epoch(req: ReportEpochRequest):
                 detail="Trial is not leased to this worker_id; re-acquire it via /api/suggest_trial.",
             )
 
-        # Resolve final values (using generic if present, otherwise fallback to positional legacy)
-        final_score = req.score if req.score is not None else req.dice
-        final_loss = req.loss if req.loss is not None else req.bce
-        final_score_fixed = req.score_eval_fixed if req.score_eval_fixed is not None else req.dice_eval_fixed
-        final_loss_fixed = req.loss_eval_fixed if req.loss_eval_fixed is not None else req.bce_eval_fixed
-
-        if final_score is None or final_loss is None:
-            raise HTTPException(status_code=400, detail="Both score (or dice) and loss (or bce) must be provided.")
+        final_score = req.score
+        final_loss = req.loss
+        final_score_fixed = req.score_eval_fixed
+        final_loss_fixed = req.loss_eval_fixed
 
         # Save user attributes for real-time dashboard monitoring
+        study._storage.set_trial_user_attr(trial_obj._trial_id, "latest_score", final_score)
+        study._storage.set_trial_user_attr(trial_obj._trial_id, "latest_loss", final_loss)
         study._storage.set_trial_user_attr(trial_obj._trial_id, "latest_dice", final_score)
         study._storage.set_trial_user_attr(trial_obj._trial_id, "latest_bce", final_loss)
         study._storage.set_trial_user_attr(trial_obj._trial_id, "latest_epoch", req.epoch)
@@ -108,17 +98,31 @@ def handle_api_report_epoch(req: ReportEpochRequest):
             study._storage.set_trial_user_attr(
                 trial_obj._trial_id, ev.get("fixed_dice_attr", "dice_eval_fixed"), final_score_fixed
             )
+            study._storage.set_trial_user_attr(
+                trial_obj._trial_id, "score_eval_fixed", final_score_fixed
+            )
         if final_loss_fixed is not None:
             study._storage.set_trial_user_attr(
                 trial_obj._trial_id, ev.get("fixed_bce_attr", "bce_eval_fixed"), final_loss_fixed
             )
+            study._storage.set_trial_user_attr(
+                trial_obj._trial_id, "loss_eval_fixed", final_loss_fixed
+            )
 
         history = list(trial_obj.user_attrs.get("history", []))
         history = [h for h in history if h.get("epoch") != req.epoch]
-        epoch_entry = {"epoch": req.epoch, "dice": final_score, "bce": final_loss}
+        epoch_entry = {
+            "epoch": req.epoch,
+            "score": final_score,
+            "loss": final_loss,
+            "dice": final_score,
+            "bce": final_loss
+        }
         if final_score_fixed is not None:
+            epoch_entry["score_eval_fixed"] = final_score_fixed
             epoch_entry["dice_eval_fixed"] = final_score_fixed
         if final_loss_fixed is not None:
+            epoch_entry["loss_eval_fixed"] = final_loss_fixed
             epoch_entry["bce_eval_fixed"] = final_loss_fixed
         history.append(epoch_entry)
         study._storage.set_trial_user_attr(trial_obj._trial_id, "history", history)
@@ -208,14 +212,10 @@ def handle_api_complete_trial(req: CompleteTrialRequest):
                     detail="Trial is not leased to this worker_id; refusing to complete.",
                 )
 
-        # Resolve final values (using generic if present, otherwise fallback to positional legacy)
-        final_score = req.score if req.score is not None else req.dice
-        final_loss = req.loss if req.loss is not None else req.bce
-        final_score_fixed = req.score_eval_fixed if req.score_eval_fixed is not None else req.dice_eval_fixed
-        final_loss_fixed = req.loss_eval_fixed if req.loss_eval_fixed is not None else req.bce_eval_fixed
-
-        if final_score is None or final_loss is None:
-            raise HTTPException(status_code=400, detail="Both score (or dice) and loss (or bce) must be provided.")
+        final_score = req.score
+        final_loss = req.loss
+        final_score_fixed = req.score_eval_fixed
+        final_loss_fixed = req.loss_eval_fixed
 
         hpo_config = load_hpo_config(req.study_name)
         ev = hpo_config.get("eval_protocol", {})
@@ -237,9 +237,15 @@ def handle_api_complete_trial(req: CompleteTrialRequest):
                     study._storage.set_trial_user_attr(
                         trial_obj._trial_id, ev.get("fixed_dice_attr", "dice_eval_fixed"), final_score_fixed
                     )
+                    study._storage.set_trial_user_attr(
+                        trial_obj._trial_id, "score_eval_fixed", final_score_fixed
+                    )
                 if final_loss_fixed is not None:
                     study._storage.set_trial_user_attr(
                         trial_obj._trial_id, ev.get("fixed_bce_attr", "bce_eval_fixed"), final_loss_fixed
+                    )
+                    study._storage.set_trial_user_attr(
+                        trial_obj._trial_id, "loss_eval_fixed", final_loss_fixed
                     )
             except optuna.exceptions.UpdateFinishedTrialError:
                 # Log warning and proceed safely
@@ -341,6 +347,8 @@ def handle_api_complete_trial(req: CompleteTrialRequest):
             "success": True,
             "completed_scores": completed_scores,
             "best_score": best_score,
+            "completed_dices": completed_scores,
+            "best_dice": best_score,
             "trial_number": trial_obj.number
         }
     except HTTPException as he:

@@ -87,7 +87,7 @@ class TestLeanRoadmap(unittest.TestCase):
             health_rating=4,
             policy_action="update_active_search_space",
             trials_evaluated=6,
-            estimated_dice_improvement=0.05,
+            estimated_score_improvement=0.05,
             cited_best_trial=5,
             force=True,
         )

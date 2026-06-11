@@ -153,32 +153,36 @@ def _trial_metric_snapshot(
             else:
                 dice = trial.value
     else:
-        dice = trial.user_attrs.get("latest_dice")
-        bce = trial.user_attrs.get("latest_bce")
-        dice_eval_fixed = trial.user_attrs.get(dice_fixed_attr)
-        bce_eval_fixed = trial.user_attrs.get(bce_fixed_attr)
+        dice = trial.user_attrs.get("latest_score", trial.user_attrs.get("latest_dice"))
+        bce = trial.user_attrs.get("latest_loss", trial.user_attrs.get("latest_bce"))
+        dice_eval_fixed = trial.user_attrs.get("score_eval_fixed", trial.user_attrs.get(dice_fixed_attr))
+        bce_eval_fixed = trial.user_attrs.get("loss_eval_fixed", trial.user_attrs.get(bce_fixed_attr))
 
     if history:
         last = max(history, key=lambda e: e.get("epoch", 0))
         latest_epoch = latest_epoch or last.get("epoch")
         if dice is None:
-            dice = last.get("dice")
+            dice = last.get("score", last.get("dice"))
         if bce is None:
-            bce = last.get("bce")
+            bce = last.get("loss", last.get("bce"))
         if dice_eval_fixed is None:
-            dice_eval_fixed = last.get("dice_eval_fixed")
+            dice_eval_fixed = last.get("score_eval_fixed", last.get("dice_eval_fixed"))
         if bce_eval_fixed is None:
-            bce_eval_fixed = last.get("bce_eval_fixed")
+            bce_eval_fixed = last.get("loss_eval_fixed", last.get("bce_eval_fixed"))
 
     if dice_eval_fixed is None:
-        dice_eval_fixed = trial.user_attrs.get(dice_fixed_attr)
+        dice_eval_fixed = trial.user_attrs.get("score_eval_fixed", trial.user_attrs.get(dice_fixed_attr))
     if bce_eval_fixed is None:
-        bce_eval_fixed = trial.user_attrs.get(bce_fixed_attr)
+        bce_eval_fixed = trial.user_attrs.get("loss_eval_fixed", trial.user_attrs.get(bce_fixed_attr))
 
     return {
         "bce": bce,
         "dice": dice,
+        "score": dice,
+        "loss": bce,
         "dice_eval_fixed": dice_eval_fixed,
         "bce_eval_fixed": bce_eval_fixed,
+        "score_eval_fixed": dice_eval_fixed,
+        "loss_eval_fixed": bce_eval_fixed,
         "latest_epoch": latest_epoch,
     }

@@ -173,7 +173,6 @@ class TrialSession:
         prompt_strategy: Optional[str] = None,
         reasoning: Optional[str] = None,
         estimated_score_improvement: Optional[float] = None,
-        estimated_dice_improvement: Optional[float] = None,
     ) -> Dict[str, Any]:
         """POST /api/suggest_trial — get the next trial's parameters.
 
@@ -190,11 +189,8 @@ class TrialSession:
         if reasoning is not None:
             payload["reasoning"] = reasoning
 
-        # Dual-mode metrics
-        est_imp = estimated_score_improvement if estimated_score_improvement is not None else estimated_dice_improvement
-        if est_imp is not None:
-            payload["estimated_score_improvement"] = est_imp
-            payload["estimated_dice_improvement"] = est_imp
+        if estimated_score_improvement is not None:
+            payload["estimated_score_improvement"] = estimated_score_improvement
 
         data = self._post("/api/suggest_trial", payload)
         self.trial_id = data.get("trial_id")
@@ -214,14 +210,10 @@ class TrialSession:
     def report_epoch(
         self,
         epoch: int,
-        score: Optional[float] = None,
-        loss: Optional[float] = None,
-        dice: Optional[float] = None,  # Positional legacy support
-        bce: Optional[float] = None,   # Positional legacy support
+        score: float,
+        loss: float,
         score_eval_fixed: Optional[float] = None,
         loss_eval_fixed: Optional[float] = None,
-        dice_eval_fixed: Optional[float] = None,
-        bce_eval_fixed: Optional[float] = None,
         gpu_memory: Optional[float] = None,
         speed_ips: Optional[float] = None,
     ) -> bool:
@@ -229,42 +221,36 @@ class TrialSession:
         if self.trial_id is None:
             raise RuntimeError("Call suggest() before report_epoch().")
 
-        # Resolve final values (using generic if present, otherwise fallback to positional legacy)
-        final_score = score if score is not None else dice
-        final_loss = loss if loss is not None else bce
-        final_score_fixed = score_eval_fixed if score_eval_fixed is not None else dice_eval_fixed
-        final_loss_fixed = loss_eval_fixed if loss_eval_fixed is not None else bce_eval_fixed
-
-        if final_score is None or final_loss is None:
-            raise ValueError("Both score (or dice) and loss (or bce) must be provided to report_epoch.")
-
         payload: Dict[str, Any] = {
             "study_name": self.study_name,
             "trial_id": self.trial_id,
             "worker_id": self.worker_id,
             "epoch": epoch,
-            "score": final_score,
-            "loss": final_loss,
-            "dice": final_score, # Backwards compatibility
-            "bce": final_loss,    # Backwards compatibility
+            "score": score,
+            "loss": loss,
         }
         if gpu_memory is not None:
             payload["gpu_memory"] = gpu_memory
         if speed_ips is not None:
             payload["speed_ips"] = speed_ips
-        if final_score_fixed is not None:
-            payload["score_eval_fixed"] = final_score_fixed
-            payload["dice_eval_fixed"] = final_score_fixed # Compatibility
-        if final_loss_fixed is not None:
-            payload["loss_eval_fixed"] = final_loss_fixed
-            payload["bce_eval_fixed"] = final_loss_fixed # Compatibility
+        if score_eval_fixed is not None:
+            payload["score_eval_fixed"] = score_eval_fixed
+        if loss_eval_fixed is not None:
+            payload["loss_eval_fixed"] = loss_eval_fixed
 
-        entry = {"epoch": epoch, "score": final_score, "loss": final_loss, "dice": final_score, "bce": final_loss}
-        if final_score_fixed is not None:
-            entry["score_eval_fixed"] = final_score_fixed
-            entry["dice_eval_fixed"] = final_score_fixed
-            entry["loss_eval_fixed"] = final_loss_fixed
-            entry["bce_eval_fixed"] = final_loss_fixed
+        entry = {
+            "epoch": epoch,
+            "score": score,
+            "loss": loss,
+            # Backwards compatibility keys for UI / charts
+            "dice": score,
+            "bce": loss,
+        }
+        if score_eval_fixed is not None:
+            entry["score_eval_fixed"] = score_eval_fixed
+            entry["dice_eval_fixed"] = score_eval_fixed
+            entry["loss_eval_fixed"] = loss_eval_fixed
+            entry["bce_eval_fixed"] = loss_eval_fixed
         self.history.append(entry)
 
         data = self._post("/api/report_epoch", payload)
@@ -273,17 +259,13 @@ class TrialSession:
     def complete(
         self,
         epoch: int,
-        score: Optional[float] = None,
-        loss: Optional[float] = None,
-        dice: Optional[float] = None,  # Legacy fallback
-        bce: Optional[float] = None,   # Legacy fallback
+        score: float,
+        loss: float,
         weights_path: str = "",
         history: Optional[List[Dict[str, Any]]] = None,
         state: str = "COMPLETE",
         score_eval_fixed: Optional[float] = None,
         loss_eval_fixed: Optional[float] = None,
-        dice_eval_fixed: Optional[float] = None,
-        bce_eval_fixed: Optional[float] = None,
         gpu_model: Optional[str] = None,
         max_vram_gb: Optional[float] = None,
         oom_triggered: Optional[bool] = None,
@@ -299,33 +281,21 @@ class TrialSession:
         if self.trial_id is None:
             raise RuntimeError("Call suggest() before complete().")
 
-        final_score = score if score is not None else dice
-        final_loss = loss if loss is not None else bce
-        final_score_fixed = score_eval_fixed if score_eval_fixed is not None else dice_eval_fixed
-        final_loss_fixed = loss_eval_fixed if loss_eval_fixed is not None else bce_eval_fixed
-
-        if final_score is None or final_loss is None:
-            raise ValueError("Both score (or dice) and loss (or bce) must be provided to complete.")
-
         payload: Dict[str, Any] = {
             "study_name": self.study_name,
             "trial_id": self.trial_id,
             "worker_id": self.worker_id,
             "epoch": epoch,
-            "score": final_score,
-            "loss": final_loss,
-            "dice": final_score, # Backwards compatibility
-            "bce": final_loss,    # Backwards compatibility
+            "score": score,
+            "loss": loss,
             "weights_path": weights_path,
             "history": history if history is not None else self.history,
             "state": state,
         }
-        if final_score_fixed is not None:
-            payload["score_eval_fixed"] = final_score_fixed
-            payload["dice_eval_fixed"] = final_score_fixed
-        if final_loss_fixed is not None:
-            payload["loss_eval_fixed"] = final_loss_fixed
-            payload["bce_eval_fixed"] = final_loss_fixed
+        if score_eval_fixed is not None:
+            payload["score_eval_fixed"] = score_eval_fixed
+        if loss_eval_fixed is not None:
+            payload["loss_eval_fixed"] = loss_eval_fixed
         if gpu_model is not None:
             payload["gpu_model"] = gpu_model
         if max_vram_gb is not None:
@@ -351,3 +321,4 @@ class TrialSession:
                 pass
 
         return data
+
