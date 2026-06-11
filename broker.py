@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from src.db_manager import get_db_session, DATABASE_URL, init_db
 from src.schema import TrialResult, AgentReasoningLog, StudyStatus, SystemConfiguration, TrialLease, CoordinatorMetric, SuggestMetric
 from src.hpo_config import load_hpo_config, save_hpo_config, normalize_trial_params, param_display_name
-from src.metrics import get_score, get_loss, score_objective_index
+from src.metrics import get_score, score_objective_index
 from src.hpo_coordinator import (
     trial_train_resolution as _trial_train_resolution,
     study_eval_insights as _study_eval_insights,
@@ -271,15 +271,12 @@ def _trial_metric_snapshot(
     latest_epoch = trial.user_attrs.get("latest_epoch")
 
     from optuna.study import StudyDirection
-    from src.metrics import _raw_value, loss_objective_index_from_dirs, score_objective_index_from_dirs
+    from src.metrics import get_loss_from_dirs, get_score_from_dirs
 
     if trial.state == TrialState.COMPLETE and (trial.values or trial.value is not None):
         if trial.values and len(trial.values) > 1:
-            # Multi-objective: derive indices from directions (not hardcoded 0/1)
-            bce_idx = loss_objective_index_from_dirs(directions or [])
-            score_idx = score_objective_index_from_dirs(directions or [])
-            bce = _raw_value(trial, bce_idx) if bce_idx is not None else None
-            dice = _raw_value(trial, score_idx) if score_idx is not None else None
+            bce = get_loss_from_dirs(trial, directions or [])
+            dice = get_score_from_dirs(trial, directions or [])
         else:
             if directions and directions[0] == StudyDirection.MINIMIZE:
                 bce = trial.value

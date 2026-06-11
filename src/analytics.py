@@ -48,8 +48,10 @@ def bin_trials(study, db_metrics: Dict[int, Any], search_space: Dict[str, Any]) 
     for t in trials:
         if t.state == TrialState.COMPLETE:
             # Use generic helpers that derive indices from study directions
-            score = get_score(t, study) or 0.0
-            loss = get_loss(t, study) or 0.0
+            s = get_score(t, study)
+            score = s if s is not None else 0.0
+            l = get_loss(t, study)
+            loss = l if l is not None else 0.0
 
             # Fetch from db_metrics if present
             metric = db_metrics.get(t.number, {})

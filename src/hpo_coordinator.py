@@ -20,7 +20,7 @@ import json
 from .db_manager import get_db_session, DATABASE_URL
 from .schema import StudyReview, StudyStatus, TrialResult, SystemConfiguration, CompactedPacket
 from .hpo_config import load_hpo_config, normalize_trial_params, param_display_name
-from .metrics import get_score, get_loss, get_best_trial, get_best_score, get_score_values, score_objective_index, _raw_value
+from .metrics import get_score, get_loss, get_best_trial, get_best_score, score_objective_index
 
 # --- Tunables for drift heuristics (deterministic, no model calls) ---
 RECENT_TRIALS_IN_PACKET = 8
@@ -61,7 +61,12 @@ def get_best_primary_score(study) -> Optional[float]:
     completed = [t for t in study.trials if t.state == TrialState.COMPLETE]
     if not completed:
         return None
-    return get_best_score(completed, study)
+    score = get_best_score(completed, study)
+    if score is not None:
+        return score
+    if len(study.directions) == 1 and study.best_value is not None:
+        return float(study.best_value)
+    return None
 
 
 def validate_review_fields(
@@ -715,14 +720,6 @@ def study_eval_insights(study, config: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _deploy_or_train_score(trial, study, score_fixed_key: str) -> Optional[float]:
-    """Fixed-eval score if present, else train score from study values."""
-    fd = trial.user_attrs.get(score_fixed_key)
-    if fd is not None:
-        return float(fd)
-    return get_score(trial, study)
-
-
 def count_evaluated_trials(study) -> int:
     """Finished trials (COMPLETE / PRUNED / FAIL) — the idempotency window for reviews."""
     return sum(
@@ -965,9 +962,10 @@ def save_study_review(
                     break
             if cited_t:
                 cited_score = get_score(cited_t, study)
-                if cited_score is not None and actual_best_score is not None:
-                    if abs(actual_best_score - cited_score) > 0.10:
-                        confidence = "low"
+                if actual_best_score is None or cited_score is None:
+                    confidence = "low"
+                elif abs(actual_best_score - cited_score) > 0.10:
+                    confidence = "low"
             else:
                 # Cited a non-existent completed trial
                 confidence = "low"
@@ -1014,6 +1012,7 @@ def _fanova_importances(study, config: Dict[str, Any]) -> Dict[str, float]:
     complete = [t for t in study.trials if t.state == TrialState.COMPLETE]
     if len(complete) < 2:
         return {}
+    importances: Dict[str, float] = {}
     try:
         if len(study.directions) > 1:
             _si = score_objective_index(study)

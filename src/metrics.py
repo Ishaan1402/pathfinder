@@ -75,25 +75,6 @@ def get_loss(trial: FrozenTrial, study) -> Optional[float]:
     return _raw_value(trial, idx)
 
 
-def get_objective(trial: FrozenTrial, index: int) -> Optional[float]:
-    """Raw value at a specific objective index (0-based)."""
-    return _raw_value(trial, index)
-
-
-# ---------------------------------------------------------------------------
-# Value access (batch / best-trial)
-# ---------------------------------------------------------------------------
-
-def get_score_values(trials: List[FrozenTrial], study) -> List[float]:
-    """All non-None primary-score values from completed trials."""
-    result: List[float] = []
-    for t in trials:
-        v = get_score(t, study)
-        if v is not None:
-            result.append(v)
-    return result
-
-
 def get_best_trial(trials: List[FrozenTrial], study) -> Optional[FrozenTrial]:
     """Return the trial with the highest primary score (MAXIMIZE objective)."""
     best = None
@@ -132,15 +113,17 @@ def loss_objective_index_from_dirs(directions: Sequence[StudyDirection]) -> Opti
     return None
 
 
-# ---------------------------------------------------------------------------
-# Convenience: was this study created with the legacy [minimize, maximize] pattern?
-# ---------------------------------------------------------------------------
+def get_score_from_dirs(trial: FrozenTrial, directions: Sequence[StudyDirection]) -> Optional[float]:
+    """Primary score for a trial when only the directions list is available."""
+    idx = score_objective_index_from_dirs(directions)
+    if idx is None:
+        return None
+    return _raw_value(trial, idx)
 
-def is_legacy_two_objective(study) -> bool:
-    """True when directions == [MINIMIZE, MAXIMIZE] (the original U-Net setup)."""
-    dirs = _directions(study)
-    return (
-        len(dirs) == 2
-        and dirs[0] == StudyDirection.MINIMIZE
-        and dirs[1] == StudyDirection.MAXIMIZE
-    )
+
+def get_loss_from_dirs(trial: FrozenTrial, directions: Sequence[StudyDirection]) -> Optional[float]:
+    """Primary loss for a trial when only the directions list is available."""
+    idx = loss_objective_index_from_dirs(directions)
+    if idx is None:
+        return None
+    return _raw_value(trial, idx)
