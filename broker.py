@@ -402,6 +402,51 @@ def api_discard_pending_changes(study_name: Optional[str] = None):
         raise HTTPException(status_code=500, detail=f"Failed to discard pending changes: {str(e)}")
 
 
+class InitFromManifestRequest(BaseModel):
+    yaml: str
+
+@app.post("/api/validate_manifest")
+def api_validate_manifest(req: InitFromManifestRequest):
+    import yaml
+    from src.manifest import validate_manifest
+    try:
+        data = yaml.safe_load(req.yaml)
+    except Exception as e:
+        return {"success": False, "errors": [f"Invalid YAML structure: {str(e)}"], "warnings": []}
+        
+    if not isinstance(data, dict):
+        return {"success": False, "errors": ["Manifest root must be a dictionary"], "warnings": []}
+
+    errors, warnings = validate_manifest(data)
+    return {"success": len(errors) == 0, "errors": errors, "warnings": warnings}
+
+@app.post("/api/init_from_manifest")
+def api_init_from_manifest(req: InitFromManifestRequest, force: bool = False):
+    import yaml
+    from src.manifest import validate_manifest
+    from src.onboarding import init_study_from_manifest_dict
+    
+    try:
+        data = yaml.safe_load(req.yaml)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid YAML structure: {str(e)}")
+        
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=400, detail="Manifest root must be a dictionary")
+
+    errors, warnings = validate_manifest(data)
+    if errors:
+        return {"success": False, "errors": errors, "warnings": warnings}
+
+    try:
+        result = init_study_from_manifest_dict(data, force=force)
+        return {"success": True, "study_name": data["study_name"], "message": result, "warnings": warnings}
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/studies")
 def api_list_studies():
     try:
@@ -409,6 +454,36 @@ def api_list_studies():
         return {"success": True, "studies": [s.study_name for s in summaries]}
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+@app.get("/api/study_setup")
+def api_study_setup(study_name: str):
+    try:
+        with get_db_session() as session:
+            context_row = session.query(SystemConfiguration).filter_by(
+                study_name=study_name, config_key="project_context"
+            ).first()
+            hpo_config_row = session.query(SystemConfiguration).filter_by(
+                study_name=study_name, config_key="hpo_config"
+            ).first()
+            context_val = context_row.config_value if context_row else None
+            hpo_config_val = hpo_config_row.config_value if hpo_config_row else None
+            
+        context = json.loads(context_val) if context_val else {}
+        hpo_config = json.loads(hpo_config_val) if hpo_config_val else {}
+        
+        is_reference = (study_name == "bridge_crack_study") and ("worker_entrypoint" not in context)
+        
+        return {
+            "success": True,
+            "study_name": study_name,
+            "worker_entrypoint": context.get("worker_entrypoint"),
+            "worker_env": context.get("worker_env"),
+            "is_reference": is_reference,
+            "manifest_metrics": hpo_config.get("manifest_metrics")
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # --- METRICS & VISUALIZATION ENDPOINTS ---
@@ -835,6 +910,9 @@ def api_mcp_info():
             "submit_agent_review",
             "validate_integration",
             "get_study_cards",
+            "validate_manifest",
+            "init_from_manifest",
+            "export_manifest",
         ]
     }
 
