@@ -12,5 +12,5 @@ Follow AGENTS.md onboarding section; use @pathfinder MCP tools; do not modify ro
 1. Read [AGENTS.md](../../../AGENTS.md) "Onboarding procedure" and follow it.
 2. Load the MCP resource `hpo://prompts/grill` for the canonical onboarding checklist.
 3. Offer a one-line "Run Pathfinder onboarding?" and do not write files until the user confirms.
-4. Scaffold from `templates/` (search space, hpo config, `worker_minimal.py`) using `hpo_client.TrialSession` - never fork `colab_worker.py`.
-5. Finish with the MCP tool `validate_integration(study_name)`.
+4. Scaffold using templates/manifest.template.yaml and worker_minimal.py. Do not write json space config files. Validate and register the study using the MCP tools `validate_manifest` and `init_from_manifest`.
+5. Finish by running the MCP tool `validate_integration(study_name)` to verify.

@@ -1,6 +1,6 @@
 /* === Worker Setup & Colab Integration === */
 
-function updateColabSnippet() {
+async function updateColabSnippet() {
     // Determine current host base URL
     const protocol = window.location.protocol;
     const host = window.location.host;
@@ -48,8 +48,30 @@ function updateColabSnippet() {
         ? ""
         : `os.environ["HPO_SECRET_TOKEN"] = "paste-same-token-as-broker"\n`;
 
+    const studyName = window.HPOState.session.studyName || 'bridge_crack_study';
+
+    let isReference = true;
+    let workerEntrypoint = null;
+    let workerEnv = null;
+
+    try {
+        const response = await fetch(`/api/study_setup?study_name=${encodeURIComponent(studyName)}`);
+        if (response.ok) {
+            const data = await response.json();
+            if (data.success) {
+                isReference = data.is_reference;
+                workerEntrypoint = data.worker_entrypoint;
+                workerEnv = data.worker_env;
+            }
+        }
+    } catch (err) {
+        console.error("Error fetching study setup:", err);
+    }
+
     // Render the Colab snippet text
-    const snippet = `# 1. Install required packages
+    let snippet = "";
+    if (isReference) {
+        snippet = `# 1. Install required packages
 !pip install -q albumentations opencv-python optuna requests sqlalchemy
 
 # 2. Download worker + client (token header required when broker uses --tunnel)
@@ -75,16 +97,93 @@ for _name in ("hpo_client.py", "colab_worker.py"):
 
 # 3. Import and run the reference worker loop
 from colab_worker import train_colab_trial_loop
-train_colab_trial_loop("${window.HPOState.session.studyName || 'bridge_crack_study'}", n_trials=12, epochs=15)`;
+train_colab_trial_loop("${studyName}", n_trials=12, epochs=15)`;
+    } else {
+        const envExports = [];
+        if (workerEnv && typeof workerEnv === 'object') {
+            for (const [k, v] of Object.entries(workerEnv)) {
+                envExports.push(`os.environ["${k}"] = "${v}"`);
+            }
+        }
+        const envLines = envExports.length ? envExports.join("\n") + "\n" : "";
+
+        if (workerEntrypoint) {
+            snippet = `# 1. Install required packages
+!pip install -q optuna requests sqlalchemy
+
+# 2. Download HPO client (token header required when broker uses --tunnel)
+import requests
+import os
+
+broker_url = "${baseUrl}"
+os.environ["HPO_BROKER_URL"] = broker_url
+os.environ["HPO_STUDY_NAME"] = "${studyName}"
+${tokenLine}${envLines}
+def _broker_headers():
+    h = {}
+    if "ngrok-free.app" in broker_url or "ngrok.io" in broker_url:
+        h["ngrok-skip-browser-warning"] = "1"
+    if os.environ.get("HPO_SECRET_TOKEN"):
+        h["X-HPO-Token"] = os.environ["HPO_SECRET_TOKEN"]
+    return h
+
+for _name in ("hpo_client.py",):
+    _r = requests.get(f"{broker_url}/{_name}", headers=_broker_headers(), timeout=60)
+    _r.raise_for_status()
+    with open(_name, "w") as _f:
+        _f.write(_r.text)
+
+# 3. Run your training entrypoint (make sure your training script is uploaded to Colab)
+!${workerEntrypoint}`;
+        } else {
+            snippet = `# 1. Install required packages
+!pip install -q optuna requests sqlalchemy
+
+# 2. Download worker template + client (token header required when broker uses --tunnel)
+import requests
+import os
+
+broker_url = "${baseUrl}"
+os.environ["HPO_BROKER_URL"] = broker_url
+os.environ["HPO_STUDY_NAME"] = "${studyName}"
+${tokenLine}${envLines}
+def _broker_headers():
+    h = {}
+    if "ngrok-free.app" in broker_url or "ngrok.io" in broker_url:
+        h["ngrok-skip-browser-warning"] = "1"
+    if os.environ.get("HPO_SECRET_TOKEN"):
+        h["X-HPO-Token"] = os.environ["HPO_SECRET_TOKEN"]
+    return h
+
+for _name in ("hpo_client.py", "worker_minimal.py"):
+    _r = requests.get(f"{broker_url}/{_name}", headers=_broker_headers(), timeout=60)
+    _r.raise_for_status()
+    with open(_name, "w") as _f:
+        _f.write(_r.text)
+
+# 3. Fill in train_one_epoch inside worker_minimal.py and run
+# !python worker_minimal.py`;
+        }
+    }
     
     const snippetTextEl = document.getElementById("colab-snippet-text");
     if (snippetTextEl) {
         snippetTextEl.textContent = snippet;
     }
 
-    const customSnippet = `export HPO_BROKER_URL="${baseUrl}"
-export HPO_STUDY_NAME="${window.HPOState.session.studyName}"
-python worker_minimal.py`;
+    let customSnippet = `export HPO_BROKER_URL="${baseUrl}"
+export HPO_STUDY_NAME="${studyName}"\n`;
+
+    if (workerEnv && typeof workerEnv === 'object') {
+        for (const [k, v] of Object.entries(workerEnv)) {
+            customSnippet += `export ${k}="${v}"\n`;
+        }
+    }
+    if (workerEntrypoint) {
+        customSnippet += `${workerEntrypoint}`;
+    } else {
+        customSnippet += `python worker_minimal.py`;
+    }
 
     const customSnippetEl = document.getElementById("custom-worker-snippet");
     if (customSnippetEl) {

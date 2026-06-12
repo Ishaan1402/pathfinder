@@ -45,6 +45,9 @@ document.addEventListener("DOMContentLoaded", () => {
             window.HPOState.render.lastAnalysisHeaderSnapshot = "";
             window.fetchStudyDetails();
             window.fetchFanova();
+            if (typeof window.updateColabSnippet === 'function') {
+                window.updateColabSnippet();
+            }
         });
     }
     fetch("/api/tunnel_url")

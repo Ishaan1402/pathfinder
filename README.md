@@ -42,14 +42,21 @@ The project implements a decoupled loop. Your IDE assistant or AI agent uses the
 
 The SQLite database (`hpo_studies.db`) contains Optuna's internal trial logs alongside our custom context tables:
 
-1. **`dataset_versions`**: Records properties of specific data slices (crack surface types, images count, resolutions).
-2. **`segmentation_metrics`**: Records training progress (epochs reached, BCE losses, Dice scores, checkpoint weights paths, validation histories, and GPU memory telemetry).
-3. **`agent_reasoning_logs`**: Logs the AI's model version, reasoning rationale, and predicted dice shifts *before* training, and compares it to empirical metrics *post-run* to calculate prediction error MAE.
-4. **`study_status`**: Tracks study-level coordination metadata, including the `coordinator_pending` flag.
+1. **`trial_results`**: Records training metrics per trial (epochs reached, score/loss, validation history, checkpoint paths, and GPU memory telemetry).
+2. **`trial_metadata`**: Extensible key-value metadata storage associated with specific trials.
+3. **`system_configuration`**: Stores key-value configuration states per study (active search space, HPO metrics config, project context, and source files).
+4. **`agent_reasoning_logs`**: Logs the AI's predicted score improvements, rationales, and model/prompt version tags *before* training, and compares them to actual metrics *post-run* to calculate prediction MAE.
+5. **`study_status`**: Tracks study-level health tiers (`healthy`, `watch`, `intervene`), reasons, and nudge dismissal state.
+6. **`study_reviews`**: Stores one row per coordinator review (health rating, summary, policy actions, trigger reasons, baseline score, and actual score improvements).
+7. **`compacted_packets`**: Caches compacted historical review data to optimize retrieval.
+8. **`study_cards`**: Tracks the audit trail of synthesized report cards (`MODEL_CARD.md`).
+9. **`invalid_proposals`**: Logs AI parameter validation failures (acting as hallucination guardrails).
+10. **`trial_leases`**: Manages locks and leases for concurrent GPU training workers.
+11. **`coordinator_metrics`** & **`suggest_metrics`**: Telemetry tables tracking server latency.
 
 > [!NOTE]
 > **Database-Backed Nudge Dismissal**
-> To prevent desynced "Coordinator review suggested" notifications across different browsers or dev machines, the logo double-ping state is managed directly in the SQLite database through the `/api/dismiss_coordinator_nudge` endpoint. When a developer copies the review prompt or dismisses the notification banner on one machine, the pending flag is updated in the SQLite database, immediately clearing the ping visual across all active dashboard sessions.
+> To prevent desynced "Coordinator review suggested" notifications across different browsers or dev machines, the logo double-ping state is managed directly in the SQLite database through the `/api/dismiss_coordinator_nudge` endpoint. When a developer copies the review prompt or dismisses the notification banner on one machine, the status is updated in the SQLite database, immediately clearing the ping visual across all active dashboard sessions.
 
 ---
 
@@ -101,6 +108,14 @@ Add the server configurations to your global MCP settings file (typically `~/.co
 
 ## 6. How to Run
 
+### Run the HTTP Broker & Custom Dashboard
+To start the FastAPI broker and serve the custom dashboard:
+```bash
+source .venv/bin/activate
+python broker.py --daemon
+```
+Open `http://127.0.0.1:8000` in your web browser to access the custom dashboard.
+
 ### Run the Decoupled Worker
 To run the local simulated worker:
 ```bash
@@ -146,13 +161,12 @@ there are no live config files on disk. If you cloned this repo to tune your own
 
 - Start from [`templates/worker_minimal.py`](templates/worker_minimal.py) and the 3-call
   client in [`hpo_client.py`](hpo_client.py) (`suggest` -> `report_epoch` -> `complete`).
-- Register your search space and config via MCP `initialize_study` (your IDE agent does this
-  during onboarding). The JSON files under `templates/` are human-readable *starting points*
-  for the values you pass to that tool; they are not read from disk at runtime.
+- Define your search space, objectives, and training commands in a manifest file (e.g. `train.hpo.yaml`) using the template [`templates/manifest.template.yaml`](templates/manifest.template.yaml).
+- Validate and initialize your study from the manifest YAML file. You can do this via the CLI (`python hpo_cli.py validate` and `python hpo_cli.py init`), drag-and-drop on the Dashboard, or via MCP.
 - Human quickstart: [`docs/INTEGRATION.md`](docs/INTEGRATION.md).
 - Agent-driven onboarding: [`AGENTS.md`](AGENTS.md). Tell any agent "integrate HPO" /
-  "onboard my training script"; it uses `@pathfinder` (`validate_search_space` →
-  `initialize_study` → `validate_integration`).
+  "onboard my training script"; it uses `@pathfinder` (`validate_manifest` →
+  `init_from_manifest` → `validate_integration`).
 
 The same MCP config works in **Cursor, Antigravity, and Claude Code** - one setup, one
 procedure (see "Exposing Pathfinder to AI Agents" above and `AGENTS.md`).
@@ -199,8 +213,4 @@ Run this against `@pathfinder` in whichever IDE is open:
 
 If you happen to have both Cursor and Antigravity open, nothing double-fires: the broker never calls an LLM on its own, the dashboard nudge is a single web view, and `submit_agent_review` is **idempotent per trial window**. A second client submitting a review for the same number of finished trials receives the existing review (`duplicate: true`) instead of writing a new row, unless it passes `force=true`. Treat the coordinator as read-heavy and write-once per review cycle.
 
-### Database
 
-The coordinator adds one table:
-
-5. **`study_reviews`**: One row per coordinator review (health rating, summary, policy action, model/prompt labels, trigger reasons, and the trial-window count used for idempotency). The dashboard Assistant panel shows the latest real review instead of templated optimizer text when the study is idle.

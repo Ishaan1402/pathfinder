@@ -34,17 +34,21 @@
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
                 <span>Broker Connection Offline. Retrying in <span id="offline-backoff-timer">2</span>s...</span>
             </div>
-            <header class="page-header">
-                <h1 id="view-title">Dashboard</h1>
-                <div class="meta-info" style="display: flex; align-items: center; gap: 12px; font-family: var(--font-mono); font-size: 0.8rem; color: var(--text-muted);">
-                    <div style="display: flex; align-items: center; gap: 6px;">
-                        <span>STUDY:</span>
-                        <select id="study-select" style="background: transparent; color: #fff; border: none; padding: 0 16px 0 0; font-size: 0.8rem; font-family: var(--font-mono); font-weight: 600; outline: none; cursor: pointer; -webkit-appearance: none; -moz-appearance: none; appearance: none; background-image: url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2210%22 height=%2210%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%237e8c9f%22 stroke-width=%223%22><path d=%22M6 9l6 6 6-6%22/></svg>'); background-repeat: no-repeat; background-position: right center; background-size: 10px;">
-                            <option value="bridge_crack_study" selected>bridge_crack_study</option>
-                        </select>
-                    </div><span style="color: var(--border-color); font-weight: 300;">/</span>
-                    <div style="display: flex; align-items: center; gap: 6px;"><span>WORKERS:</span><strong id="workers-count-val" style="color: #fff; font-weight: 600;">0</strong></div>
+            <header class="page-header" style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <h1 id="view-title">Dashboard</h1>
+                    <span style="color: var(--border-color); font-weight: 300; font-size: 0.8rem;">/</span>
+                    <div class="meta-info" style="display: flex; align-items: center; gap: 12px; font-family: var(--font-mono); font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase;">
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                            <span>STUDY:</span>
+                            <select id="study-select" style="background: transparent; color: #fff; border: none; padding: 0 16px 0 0; font-size: 0.8rem; font-family: var(--font-mono); font-weight: 600; outline: none; cursor: pointer; -webkit-appearance: none; -moz-appearance: none; appearance: none; background-image: url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2210%22 height=%2210%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%237e8c9f%22 stroke-width=%223%22><path d=%22M6 9l6 6 6-6%22/></svg>'); background-repeat: no-repeat; background-position: right center; background-size: 10px;">
+                                <option value="bridge_crack_study" selected>bridge_crack_study</option>
+                            </select>
+                        </div><span style="color: var(--border-color); font-weight: 300;">/</span>
+                        <div style="display: flex; align-items: center; gap: 6px;"><span>WORKERS:</span><strong id="workers-count-val" style="color: #fff; font-weight: 600;">0</strong></div>
+                    </div>
                 </div>
+                <button type="button" class="btn-new-study-header" id="btn-new-study" onclick="window.showNewStudyModal()">+ New Study</button>
             </header>
             <div class="content-view active" id="dashboard-view">
                 <div class="dashboard-main">
@@ -261,6 +265,48 @@
             </div>
         </div>
     </div>
-    <script src="/js/state.js?v=1.0.3"></script><script src="/js/utils.js?v=1.0.3"></script><script src="/js/theme.js?v=1.0.3"></script><script src="/js/routing.js?v=1.0.3"></script><script src="/js/api.js?v=1.0.3"></script><script src="/js/settings.js?v=1.0.3"></script><script src="/js/export.js?v=1.0.3"></script><script src="/js/worker_setup.js?v=1.0.3"></script><script src="/js/table_infra.js?v=1.0.3"></script><script src="/js/table_filters.js?v=1.0.3"></script><script src="/js/table_render.js?v=1.0.3"></script><script src="/js/charts_utils.js?v=1.0.3"></script><script src="/js/charts_pareto.js?v=1.0.3"></script><script src="/js/charts_pathways_math.js?v=1.0.3"></script><script src="/js/charts_pathways_render.js?v=1.0.3"></script><script src="/js/charts_timeline.js?v=1.0.3"></script><script src="/js/charts_modal.js?v=1.0.3"></script><script src="/js/modal.js?v=1.0.3"></script><script src="/js/health.js?v=1.0.3"></script><script src="/js/main.js?v=1.0.3"></script>
+    <div class="modal-overlay" id="new-study-modal" onclick="window.closeNewStudyModal(event)">
+        <div class="modal-card" onclick="event.stopPropagation()" style="width: 900px; max-width: 95%;">
+            <div class="modal-header">
+                <h3 class="modal-title">Create New Study from Manifest</h3>
+                <button class="modal-close" onclick="window.closeNewStudyModalDirect()">&times;</button>
+            </div>
+            <div class="modal-content" style="gap: 16px;">
+                <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.4; margin-bottom: 8px;">
+                    Upload or drag-and-drop a <code>manifest.hpo.yaml</code> file to register a new study. You can also edit the configuration details directly below before initializing.
+                </p>
+                <div class="modal-grid" style="grid-template-columns: 1fr 1fr; gap: 20px; align-items: stretch;">
+                    <div style="display: flex; flex-direction: column; gap: 12px;">
+                        <div class="manifest-upload-zone" id="manifest-upload-zone" style="border: 2px dashed var(--border-color); padding: 30px 20px; text-align: center; cursor: pointer; transition: border-color 0.2s ease, background-color 0.2s ease; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--text-muted);"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                            <span style="font-size: 0.85rem; font-weight: 500;">Drag and drop manifest YAML here</span>
+                            <span style="font-size: 0.75rem; color: var(--text-muted);">or click to select file</span>
+                            <input type="file" id="manifest-file-input" accept=".yaml,.yml" style="display: none;">
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 6px; flex: 1;">
+                            <label for="manifest-yaml-editor" style="font-size: 0.75rem; font-weight: 600; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Manifest YAML Preview / Editor</label>
+                            <textarea id="manifest-yaml-editor" placeholder="study_name: my_new_study&#10;metrics:&#10;  primary_score: dice&#10;  objectives:&#10;    - name: dice&#10;      direction: maximize&#10;      label: Dice&#10;..." style="width: 100%; height: 320px; font-family: var(--font-mono); font-size: 0.8rem; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: #fff; padding: 12px; resize: none; outline: none; line-height: 1.4;"></textarea>
+                        </div>
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 12px;">
+                        <label style="font-size: 0.75rem; font-weight: 600; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Validation Console</label>
+                        <div id="manifest-validation-console" style="flex: 1; background: #000; border: 1px solid var(--border-color); padding: 14px; font-family: var(--font-mono); font-size: 0.8rem; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; min-height: 250px; max-height: 420px;">
+                            <div style="color: var(--text-muted); font-style: italic;">No manifest loaded yet. Drag-and-drop or select a file to begin.</div>
+                        </div>
+                        <div style="display: flex; align-items: center; justify-content: space-between; border-top: 1px solid var(--border-color); padding-top: 12px; margin-top: 4px;">
+                            <label class="hpo-toggle" style="margin-left: 0;">
+                                <input type="checkbox" id="manifest-force-check"><span class="hpo-toggle-box" aria-hidden="true"></span><span class="hpo-toggle-label" style="font-size: 0.8rem; font-weight: 600;">Force Overwrite (if exists)</span>
+                            </label>
+                            <div style="display: flex; gap: 10px;">
+                                <button type="button" class="toolbar-btn" style="background: transparent; border: 1px solid var(--border-color); color: var(--text-color);" onclick="window.closeNewStudyModalDirect()">Cancel</button>
+                                <button type="button" class="toolbar-btn" id="btn-submit-manifest" style="background: var(--accent-color); color: #000; font-weight: 700;" onclick="window.submitManifest()" disabled>Initialize Study</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="/js/state.js?v=1.0.3"></script><script src="/js/utils.js?v=1.0.3"></script><script src="/js/theme.js?v=1.0.3"></script><script src="/js/routing.js?v=1.0.3"></script><script src="/js/api.js?v=1.0.3"></script><script src="/js/settings.js?v=1.0.3"></script><script src="/js/export.js?v=1.0.3"></script><script src="/js/worker_setup.js?v=1.0.3"></script><script src="/js/table_infra.js?v=1.0.3"></script><script src="/js/table_filters.js?v=1.0.3"></script><script src="/js/table_render.js?v=1.0.3"></script><script src="/js/charts_utils.js?v=1.0.3"></script><script src="/js/charts_pareto.js?v=1.0.3"></script><script src="/js/charts_pathways_math.js?v=1.0.3"></script><script src="/js/charts_pathways_render.js?v=1.0.3"></script><script src="/js/charts_timeline.js?v=1.0.3"></script><script src="/js/charts_modal.js?v=1.0.3"></script><script src="/js/modal.js?v=1.0.3"></script><script src="/js/health.js?v=1.0.3"></script><script src="/js/onboarding.js?v=1.0.3"></script><script src="/js/main.js?v=1.0.3"></script>
 </body>
 </html>

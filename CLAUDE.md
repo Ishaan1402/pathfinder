@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   source .venv/bin/activate
   pip install -r requirements.txt
   ```
-- **Run FastAPI Broker Server**:
+- **Run FastAPI Broker Server (serves Custom Dashboard on http://127.0.0.1:8000)**:
   ```bash
   python3 broker.py --daemon              # local only
   export HPO_SECRET_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
@@ -21,10 +21,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   # Standard worker simulation:
   python3 simulators/training_worker.py
   
-  # Or run default study:
-  HPO_BROKER_URL=http://localhost:8123 HPO_STUDY_NAME=seg_v1 python3 simulators/training_worker.py
+  # Or run a specific study:
+  HPO_BROKER_URL=http://localhost:8000 HPO_STUDY_NAME=your_study_name python3 simulators/training_worker.py
   ```
-- **Launch Visualization Dashboard (Optuna)**:
+- **Launch Fallback Optuna Dashboard**:
   ```bash
   optuna-dashboard sqlite:///hpo_studies.db
   ```

@@ -50,15 +50,22 @@ config works in Cursor, Antigravity, and Claude Code - see the README
 "Exposing Pathfinder to AI Agents" section. Set `HPO_BROKER_URL` in the MCP env if you want
 `validate_integration` to check the live broker.
 
-## 4. Define your search space
+## 4. Define your search space via a Manifest
 
-With the SQLite-backed state configuration system, you do **not** need to create or edit JSON configuration files on disk. Instead, configurations reside in the `system_configuration` table.
+Pathfinder uses a manifest-based onboarding system. You define your study config, search space parameters, objectives, and training command in a single YAML file (e.g. `train.hpo.yaml`).
 
-To define your active search space:
-- Use the Pathfinder `hpo://prompts/grill` onboarding prompt resource to automatically initialize the study, or
-- Manually call the MCP tool `initialize_study(study_name, active_search_space, hpo_config, project_context)` to register your active parameters (keys, types, bounds, categoricals) and custom display labels.
+To set up a study:
+1. **Create the manifest file**: Write a YAML file based on `templates/manifest.template.yaml`.
+2. **Validate the manifest**:
+   - **CLI**: `python hpo_cli.py validate train.hpo.yaml`
+   - **MCP**: Use the `validate_manifest` tool.
+   - **Dashboard**: Drag and drop the YAML into the **New Study** modal.
+3. **Register/Initialize the study**:
+   - **CLI**: `python hpo_cli.py init train.hpo.yaml`
+   - **MCP**: Use the `init_from_manifest` tool.
+   - **Dashboard**: Click **Initialize Study** after validating.
 
-The database configuration keeps all studies isolated and local-first.
+This stores configuration in the database and creates the Optuna study. The database configuration keeps all studies isolated.
 
 ## 5. The worker contract (three calls)
 
@@ -175,7 +182,7 @@ download-and-run snippet (including authenticated fetches of `colab_worker.py`).
 
 ## 6. Create the study and validate
 
-Call the MCP `initialize_study` tool to create the Optuna study and seed configuration options. Use the `/health` broker endpoint to verify connectivity.
+Call the MCP `init_from_manifest` tool (or CLI `init`) to create the Optuna study and seed configuration options from your manifest file. Use the `/health` broker endpoint to verify connectivity.
 
 ## Next steps
 
