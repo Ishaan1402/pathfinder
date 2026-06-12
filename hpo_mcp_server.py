@@ -47,6 +47,12 @@ from src.hpo_coordinator import _validate_manual_parameters
 
 # --- MCP TOOLS ---
 
+from src.onboarding import (
+    initialize_study as core_initialize_study,
+    delete_study_internal,
+    init_study_from_manifest_dict
+)
+
 @mcp.tool()
 def initialize_study(
     study_name: str,
@@ -54,65 +60,18 @@ def initialize_study(
     hpo_config: Dict[str, Any],
     project_context: Optional[Dict[str, Any]] = None,
     source_files: Optional[Dict[str, str]] = None,
-    multi_objective: bool = True
+    multi_objective: bool = True,
+    directions: Optional[List[str]] = None
 ) -> str:
     """Initializes a new study: creates Optuna study and stores search space, config, context, and source files in DB."""
-    try:
-        # Create Optuna study
-        if multi_objective:
-            optuna.create_study(
-                study_name=study_name,
-                storage=DATABASE_URL,
-                directions=["minimize", "maximize"],
-                load_if_exists=True
-            )
-        else:
-            optuna.create_study(
-                study_name=study_name,
-                storage=DATABASE_URL,
-                direction="maximize",
-                pruner=optuna.pruners.MedianPruner(n_startup_trials=3, n_warmup_steps=10),
-                load_if_exists=True
-            )
-
-        # Persist configurations to database
-        with get_db_session() as session:
-            # Active Search Space
-            session.merge(SystemConfiguration(
-                study_name=study_name,
-                config_key="active_search_space",
-                config_value=json.dumps(active_search_space)
-            ))
-            # HPO Config (global key fallback or study-specific)
-            session.merge(SystemConfiguration(
-                study_name=study_name,
-                config_key="hpo_config",
-                config_value=json.dumps(hpo_config)
-            ))
-            # Project Context / Hypothesis
-            session.merge(SystemConfiguration(
-                study_name=study_name,
-                config_key="project_context",
-                config_value=json.dumps(project_context or {})
-            ))
-            # Source Files Audit Trail
-            if source_files:
-                session.merge(SystemConfiguration(
-                    study_name=study_name,
-                    config_key="source_files",
-                    config_value=json.dumps(source_files)
-                ))
-            
-            # Initial healthy status
-            session.merge(StudyStatus(
-                study_name=study_name,
-                health_tier="healthy",
-                health_reason="Study initialized successfully."
-            ))
-
-        return f"Study '{study_name}' successfully initialized and configured in database."
-    except Exception as e:
-        return f"Failed to initialize study '{study_name}': {str(e)}"
+    return core_initialize_study(
+        study_name=study_name,
+        active_search_space=active_search_space,
+        hpo_config=hpo_config,
+        project_context=project_context,
+        source_files=source_files, multi_objective=multi_objective,
+        directions=directions
+    )
 
 @mcp.tool()
 def get_study_data(study_name: str) -> Dict[str, Any]:
@@ -281,42 +240,8 @@ def update_search_space(study_name: str, space_config: Dict[str, Any], apply: bo
 
 @mcp.tool()
 def delete_study(study_name: str, confirm: bool = False) -> Dict[str, Any]:
-    """Permanently delete a study: its Optuna trials and ALL custom metadata rows.
-
-    Destructive and irreversible — requires confirm=True. Use when retiring a finished or
-    mistaken study so its name can be reused cleanly. Deletes rows from every table keyed by
-    study_name (auto-discovered, so it stays correct as the schema grows).
-    """
-    if not confirm:
-        return {"success": False, "error": "Refusing to delete without confirm=True."}
-
-    deleted: Dict[str, Any] = {"optuna_study": False, "rows": {}}
-
-    # 1. Optuna's own study (trials, params, distributions).
-    try:
-        optuna.delete_study(study_name=study_name, storage=DATABASE_URL)
-        deleted["optuna_study"] = True
-    except KeyError:
-        pass  # already absent
-    except Exception as e:
-        return {"success": False, "error": f"Failed to delete Optuna study: {e}"}
-
-    # 2. Every custom table that carries a study_name column.
-    from src.schema import Base
-    from sqlalchemy import delete as sa_delete
-    try:
-        with get_db_session() as session:
-            for table in Base.metadata.sorted_tables:
-                if "study_name" in table.c:
-                    result = session.execute(
-                        sa_delete(table).where(table.c.study_name == study_name)
-                    )
-                    if result.rowcount:
-                        deleted["rows"][table.name] = result.rowcount
-    except Exception as e:
-        return {"success": False, "error": f"Failed to delete metadata rows: {e}"}
-
-    return {"success": True, "study_name": study_name, "deleted": deleted}
+    """Permanently delete a study: its Optuna trials and ALL custom metadata rows."""
+    return delete_study_internal(study_name=study_name, confirm=confirm)
 
 
 @mcp.tool()
@@ -531,20 +456,207 @@ def get_study_cards(study_name: Optional[str] = None) -> List[Dict[str, Any]]:
     """Retrieves generated study cards (model cards, recaps) from the database to enable cross-study queries."""
     return load_study_cards(study_name)
 
+@mcp.tool()
+def validate_manifest(yaml_str: str) -> Dict[str, Any]:
+    """Mechanically validate a manifest YAML string against the Pathfinder schema rules."""
+    import yaml
+    from src.manifest import validate_manifest as core_validate
+    try:
+        data = yaml.safe_load(yaml_str)
+    except Exception as e:
+        return {"success": False, "errors": [f"Invalid YAML structure: {str(e)}"], "warnings": []}
+        
+    if not isinstance(data, dict):
+        return {"success": False, "errors": ["Manifest root must be a dictionary"], "warnings": []}
+
+    errors, warnings = core_validate(data)
+    return {"success": len(errors) == 0, "errors": errors, "warnings": warnings}
+
+@mcp.tool()
+def init_from_manifest(yaml_str: str, force: bool = False) -> Dict[str, Any]:
+    """Validate and register a new HPO study from a manifest YAML string, with deep overwrite cleanup on force=True."""
+    import yaml
+    try:
+        data = yaml.safe_load(yaml_str)
+    except Exception as e:
+        return {"success": False, "error": f"Invalid YAML structure: {str(e)}"}
+        
+    if not isinstance(data, dict):
+        return {"success": False, "error": "Manifest root must be a dictionary"}
+
+    try:
+        result = init_study_from_manifest_dict(data, force=force)
+        return {"success": True, "message": result}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@mcp.tool()
+def export_manifest(study_name: str) -> str:
+    """Export the active search space, HPO config, and context of an existing study as a valid manifest YAML string."""
+    import yaml
+    import json
+    
+    # Query database configurations
+    space_val = None
+    config_val = None
+    context_val = None
+    source_val = None
+
+    with get_db_session() as session:
+        space_row = session.query(SystemConfiguration).filter_by(
+            study_name=study_name, config_key="active_search_space"
+        ).first()
+        if space_row:
+            space_val = space_row.config_value
+            
+        config_row = session.query(SystemConfiguration).filter_by(
+            study_name=study_name, config_key="hpo_config"
+        ).first()
+        if config_row:
+            config_val = config_row.config_value
+            
+        context_row = session.query(SystemConfiguration).filter_by(
+            study_name=study_name, config_key="project_context"
+        ).first()
+        if context_row:
+            context_val = context_row.config_value
+            
+        source_row = session.query(SystemConfiguration).filter_by(
+            study_name=study_name, config_key="source_files"
+        ).first()
+        if source_row:
+            source_val = source_row.config_value
+
+    if not space_val:
+        raise ValueError(f"Study '{study_name}' not found in database.")
+
+    space = json.loads(space_val)
+    hpo_config = json.loads(config_val) if config_val else {}
+    project_context = json.loads(context_val) if context_val else {}
+    source_files = json.loads(source_val) if source_val else {}
+
+    # Reconstruct manifest dict
+    manifest = {
+        "study_name": study_name
+    }
+
+    if "manifest_metrics" in hpo_config:
+        manifest["metrics"] = hpo_config["manifest_metrics"]
+    else:
+        score_label = hpo_config.get("metric_score_label", "score")
+        loss_label = hpo_config.get("metric_loss_label", "loss")
+        
+        try:
+            study = optuna.load_study(study_name=study_name, storage=DATABASE_URL)
+            directions = [d.name.lower() for d in study.directions]
+        except Exception:
+            directions = ["maximize"]  # Default fallback
+
+        # Reconstruct metrics objectives
+        objectives = []
+        primary_score = "score" # default fallback
+        
+        if len(directions) > 1:
+            objectives.append({
+                "name": "loss",
+                "direction": "minimize",
+                "label": loss_label
+            })
+            objectives.append({
+                "name": "score",
+                "direction": "maximize",
+                "label": score_label
+            })
+            primary_score = "score"
+        else:
+            dir_name = "maximize"
+            if directions:
+                dir_name = "minimize" if directions[0] == "minimize" else "maximize"
+            objectives.append({
+                "name": "score",
+                "direction": dir_name,
+                "label": score_label
+            })
+            primary_score = "score"
+
+        manifest["metrics"] = {
+            "primary_score": primary_score,
+            "objectives": objectives
+        }
+
+    # Reconstruct params
+    params_list = []
+    for p_name, spec in space.items():
+        if not isinstance(spec, dict):
+            continue
+        ptype = spec.get("type")
+        param_def = {"name": p_name}
+        
+        if ptype in ("float", "float_log", "int"):
+            param_def["type"] = ptype
+            param_def["min"] = spec.get("min")
+            param_def["max"] = spec.get("max")
+        elif ptype == "categorical":
+            opts = spec.get("options", [])
+            if len(opts) == 1:
+                param_def["type"] = "fixed"
+                param_def["value"] = opts[0]
+            elif set(opts) == {True, False}:
+                param_def["type"] = "bool"
+            else:
+                param_def["type"] = "categorical"
+                param_def["options"] = opts
+        else:
+            param_def["type"] = "fixed"
+            param_def["value"] = spec.get("value")
+            
+        params_list.append(param_def)
+
+    manifest["params"] = params_list
+
+    # Eval protocol
+    eval_proto = hpo_config.get("eval_protocol", {})
+    if eval_proto and eval_proto.get("enabled"):
+        manifest["eval_protocol"] = {
+            "enabled": True,
+            "fixed_resolution": eval_proto.get("fixed_resolution"),
+            "train_resolution_param": eval_proto.get("train_resolution_param", "resolution")
+        }
+
+    # Worker entrypoint/env from project_context
+    worker_data = {}
+    if "worker_entrypoint" in project_context:
+        worker_data["entrypoint"] = project_context["worker_entrypoint"]
+    if "worker_env" in project_context:
+        worker_data["env"] = project_context["worker_env"]
+    if worker_data:
+        manifest["worker"] = worker_data
+
+    # Exclude system metadata from project_context
+    filtered_context = {k: v for k, v in project_context.items() if k not in ("worker_entrypoint", "worker_env")}
+    if filtered_context:
+        manifest["project_context"] = filtered_context
+
+    if source_files:
+        manifest["source_files"] = source_files
+
+    return yaml.dump(manifest, sort_keys=False)
+
 # --- MCP PROMPT RESOURCES ---
 
 @mcp.resource("hpo://prompts/grill")
 def resource_grill() -> str:
-    """Onboarding checklist: interview, then 3-step deterministic gate."""
-    return """# Pathfinder Onboarding (Grill + 3-Step Gate)
+    """Onboarding checklist: interview, then manifest loop."""
+    return """# Pathfinder Onboarding (Grill + Manifest Loop)
 
 See AGENTS.md for the full procedure. After interviewing the user (metrics, GPU, bounds, hypothesis):
 
-1. `validate_search_space(proposed_space, hpo_config, project_context)` — STOP if not valid.
-2. `initialize_study(study_name, active_search_space, hpo_config, project_context)` — writes SQLite + Optuna.
-3. `validate_integration(study_name)` — broker health + DB smoke check.
+1. Draft a YAML manifest configuration (e.g. `train.hpo.yaml`).
+2. Call `validate_manifest(yaml_str)` to check for errors/warnings mechanically.
+3. Call `init_from_manifest(yaml_str)` to register the study in SQLite and Optuna.
+4. Call `validate_integration(study_name)` to confirm the broker is healthy and integration is ready.
 
-Worker integration: `docs/INTEGRATION.md`. Never write `active_search_space.json` or `hpo_config.json` to disk.
+Worker integration reference: `docs/INTEGRATION.md`. Do not write json space config files to disk.
 """
 
 @mcp.resource("hpo://prompts/review")
