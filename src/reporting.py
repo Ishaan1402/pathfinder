@@ -8,7 +8,7 @@ from optuna.trial import TrialState
 from src.db_manager import get_db_session
 from src.schema import TrialResult, AgentReasoningLog, StudyStatus, TrialLease
 from src.hpo_config import load_hpo_config
-from src.metrics import get_score
+from src.metrics import get_score, loss_objective_index, score_objective_index
 from src.hpo_coordinator import compute_health_tier, write_ide_status_file, backfill_review_outcomes
 from src.leases import _lease_is_owned
 from src.pruning import _epoch_composite_score, _pruning_peer_trials
@@ -258,9 +258,19 @@ def handle_api_complete_trial(req: CompleteTrialRequest):
         else:
             if t_state == TrialState.COMPLETE:
                 if len(study.directions) > 1:
-                    study.tell(trial_obj.number, [final_loss, final_score])
+                    loss_idx = loss_objective_index(study)
+                    score_idx = score_objective_index(study)
+                    values = [0.0] * len(study.directions)
+                    if loss_idx is not None:
+                        values[loss_idx] = final_loss
+                    if score_idx is not None:
+                        values[score_idx] = final_score
+                    study.tell(trial_obj.number, values)
                 else:
-                    study.tell(trial_obj.number, final_score)
+                    if study.directions[0] == optuna.study.StudyDirection.MINIMIZE:
+                        study.tell(trial_obj.number, final_loss)
+                    else:
+                        study.tell(trial_obj.number, final_score)
             else:
                 try:
                     study.tell(trial_obj.number, state=t_state)

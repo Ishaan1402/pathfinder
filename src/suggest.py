@@ -47,7 +47,7 @@ def load_study(study_name: str):
     except KeyError:
         raise HTTPException(
             status_code=404,
-            detail=f"Study '{study_name}' is not initialized. Create it first via the MCP initialize_study tool.",
+            detail=f"Study '{study_name}' is not initialized. Create it first via the Dashboard, CLI init, or MCP init_from_manifest tool.",
         )
 
 
