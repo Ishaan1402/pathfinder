@@ -69,11 +69,17 @@ function updateAnalysisStatusTicker() {
         return;
     }
     let displayTier = tier === "intervene" ? "intervene" : (tier === "watch" || (review?.review_recommended && (review.reasons || []).length && !window.HPOState.ui.reviewPillDismissed) || confidence === "low" ? "watch" : "healthy");
-    const text = messages.join(" · ") + "   ·   ";
+    let separator = "  ▲  ";
+    if (displayTier === "watch") {
+        separator = "  ◆  ";
+    } else if (displayTier === "intervene") {
+        separator = "  ▼  ";
+    }
+    const text = messages.map((m) => m.toUpperCase()).join(separator) + separator;
     ticker.className = `analysis-status-ticker tier-${displayTier}`;
     ticker.dataset.tier = displayTier;
     [text, text].forEach((segment) => track.appendChild(Object.assign(document.createElement("span"), { className: "ticker-segment", textContent: segment })));
-    track.style.setProperty("--ticker-duration", `${Math.max(12, Math.min(24, text.length * 0.15))}s`);
+    track.style.setProperty("--ticker-duration", `${Math.max(20, Math.min(45, text.length * 0.28))}s`);
 }
 
 async function toggleReviewFlag(reviewId, flagged) {
