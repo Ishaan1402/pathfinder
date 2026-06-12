@@ -123,6 +123,29 @@ def _apply_additive_migrations():
                 # Best-effort: a concurrent process may have added it already.
                 print(f"Error migrating column {col_name} in {table}: {e}")
 
+    # Drop obsolete columns after confirming new columns are present and data is copied
+    for table, col_map in [
+        ("agent_reasoning_logs", {"estimated_dice_improvement": "estimated_score_improvement", "actual_dice_improvement": "actual_score_improvement"}),
+        ("study_reviews", {"estimated_dice_improvement": "estimated_score_improvement", "actual_dice_improvement": "actual_score_improvement"}),
+    ]:
+        if table in existing_tables:
+            try:
+                present = {c["name"] for c in inspector.get_columns(table)}
+            except Exception:
+                continue
+            for old_col, new_col in col_map.items():
+                if old_col in present:
+                    try:
+                        with engine.begin() as conn:
+                            # If new column exists, migrate remaining NULL values if any
+                            if new_col in present:
+                                conn.execute(text(f"UPDATE {table} SET {new_col} = {old_col} WHERE {new_col} IS NULL"))
+                            # Drop the obsolete column
+                            conn.execute(text(f"ALTER TABLE {table} DROP COLUMN {old_col}"))
+                            print(f"Migration: Dropped obsolete column '{old_col}' from table '{table}'")
+                    except Exception as drop_err:
+                        print(f"Migration: Error dropping obsolete column '{old_col}' from table '{table}': {drop_err}")
+
 
 def _migrate_segmentation_metrics_to_trial_results():
     from sqlalchemy import inspect, text
