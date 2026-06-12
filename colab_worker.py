@@ -324,7 +324,7 @@ def calculate_dice_score(pred_mask: np.ndarray, target_mask: np.ndarray) -> floa
 
 
 # --- 7. MAIN HPO RUNNER FOR COLAB ---
-COLAB_WORKER_REV = "2025-06-07-2"  # bump after broker-side edits; Colab should re-fetch /colab_worker.py
+COLAB_WORKER_REV = "2025-06-11-1"  # bump after broker-side edits; Colab should re-fetch /colab_worker.py
 
 #
 # Public entrypoints (bridge-crack reference only):
@@ -496,8 +496,8 @@ def train_colab_trial(study_name: str, epochs=15):
                 epoch,
                 mean_dice,
                 mean_bce,
-                dice_eval_fixed=dice_eval_fixed,
-                bce_eval_fixed=bce_eval_fixed,
+                score_eval_fixed=dice_eval_fixed,
+                loss_eval_fixed=bce_eval_fixed,
                 gpu_memory=gpu_memory,
                 speed_ips=speed_ips
             )
@@ -508,8 +508,8 @@ def train_colab_trial(study_name: str, epochs=15):
                     epoch,
                     mean_dice,
                     mean_bce,
-                    dice_eval_fixed=dice_eval_fixed,
-                    bce_eval_fixed=bce_eval_fixed,
+                    score_eval_fixed=dice_eval_fixed,
+                    loss_eval_fixed=bce_eval_fixed,
                     state="PRUNED",
                     gpu_model=gpu_model,
                     max_vram_gb=max_vram_gb,
@@ -527,8 +527,8 @@ def train_colab_trial(study_name: str, epochs=15):
                 mean_dice,
                 mean_bce,
                 weights_path=weights_path,
-                dice_eval_fixed=dice_eval_fixed,
-                bce_eval_fixed=bce_eval_fixed,
+                score_eval_fixed=dice_eval_fixed,
+                loss_eval_fixed=bce_eval_fixed,
                 state="COMPLETE",
                 gpu_model=gpu_model,
                 max_vram_gb=max_vram_gb,

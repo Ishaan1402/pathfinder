@@ -203,7 +203,7 @@ def cmd_review(args):
             model_version="cli_coordinator",
             reasons=reasons,
             trials_evaluated=n_eval,
-            estimated_dice_improvement=est_imp,
+            estimated_score_improvement=est_imp,
             cited_best_trial=cited_best,
             force=args.force
         )
