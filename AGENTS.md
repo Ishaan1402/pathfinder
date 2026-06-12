@@ -27,28 +27,31 @@ for writes; reviews are idempotent per trial window, so a second client will not
 
 ## Onboarding procedure
 
-Trigger this when the user says "integrate HPO", "onboard my training script", "wire
-hyperparameter tuning", or clones the repo fresh. **Offer a one-line "Run Pathfinder onboarding?"
-and do not write files until the user confirms.**
+Trigger this when the user says "integrate HPO", "onboard my training script", "wire hyperparameter tuning", or clones the repo fresh. **Offer a one-line "Run Pathfinder onboarding?" and do not write files until the user confirms.**
 
-1. **Read the user's training entrypoint.** Identify the tunable hyperparameters and the
-   metrics it can report (something higher-is-better like Accuracy, Dice, or BLEU, and lower-is-better like Cross-Entropy, BCE, or Perplexity).
-2. **Propose configs.** Define the active search space (keys, types, bounds) and HPO configs. Use custom `metric_loss_label` and `metric_score_label` to customize dashboard display names.
-3. **Run the 3-step deterministic gate** (code validates; agent proposes):
-   - `validate_search_space(active_search_space, hpo_config, project_context)` — STOP if not valid.
-   - `initialize_study(study_name, active_search_space, hpo_config, project_context)` — writes SQLite + Optuna.
-   - `validate_integration(study_name)` — broker `/health` + DB rows present.
-4. **Generate a thin worker** from `templates/worker_minimal.py` using `hpo_client.TrialSession`
-   (`suggest` -> `report_epoch` -> `complete`). **Do not fork the 600-line root
-   `colab_worker.py`** - that is the bridge-crack reference implementation.
-5. **Document the GPU side.** Tell the user to set `HPO_BROKER_URL` (and optionally
-   `HPO_STUDY_NAME`) on the machine that runs training, and which study name to use. Enable `HPO_SPARKLINES=1` if they want a Unicode performance curve printed on trial completion.
+1. **Read the user's training entrypoint.** Identify tunable hyperparameters, metric names, and metric directions.
+
+2. **Generate a manifest file.** Write `train.hpo.yaml` (or the user's chosen name) using the schema in `templates/manifest.template.yaml`. Do NOT call registration tools (`init_from_manifest`) yet. Show the user the file for review first, though you may call `validate_manifest` to verify your draft is syntactically valid.
+
+3. **User reviews the manifest.** They check bounds, metric names, and directions. They edit anything that looks wrong. The manifest is theirs, not yours.
+
+4. **Validate mechanically.** If you are running as an MCP-enabled IDE agent (Cursor, Antigravity, Claude Code), call the MCP tool `validate_manifest(yaml_str)` to check for errors/warnings. Alternatively, tell the user to run:
+   ```
+   python hpo_cli.py validate train.hpo.yaml
+   ```
+   If validation fails, read the errors, fix the manifest, repeat.
+
+5. **Register the study.** Call the MCP tool `init_from_manifest(yaml_str, force=...)` to register the study in SQLite and Optuna. Alternatively, tell the user to run:
+   ```
+   python hpo_cli.py init train.hpo.yaml
+   ```
+   This creates the Optuna study and stores config in the database.
+
+6. **Generate the worker.** From `templates/worker_minimal.py`, write a worker script that uses `TrialSession`. Note that the worker reports metrics using the generic `report_epoch(epoch, score=..., loss=...)` and `complete(..., score=..., loss=...)` slots. Do NOT pass custom objective names as arguments; instead, map your higher-is-better metric to `score` and your lower-is-better metric to `loss`.
+
+7. **Document the GPU side.** Tell the user to set `HPO_BROKER_URL` and `HPO_STUDY_NAME` on the training machine. The study name must match the manifest. Enable `HPO_SPARKLINES=1` if they want a Unicode performance curve printed on trial completion.
 
 The worker contract is exactly three calls; full reference in `docs/INTEGRATION.md`. Load the grill checklist from `hpo://prompts/grill` (not a separate integration-guide tool).
-
-**Bridge-crack Colab only:** `colab_worker.py` exposes `train_colab_trial` (one trial) and
-`train_colab_trial_loop` (full session). Cloners use `templates/worker_minimal.py`, not
-`colab_worker.py`.
 
 ### Statistical confidence (caveat, not a gate)
 
