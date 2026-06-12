@@ -1267,7 +1267,7 @@
             vertical-align: middle;
         }
 
-        .trial-table .col-trial { width: 44px; min-width: 44px; }
+        .trial-table .col-trial { width: 60px; min-width: 60px; }
         .trial-table .col-state { width: 100px; }
         .trial-table .col-metric { width: 72px; }
         .trial-table .col-dice-fixed { width: 72px; }
@@ -1871,11 +1871,24 @@
 
         /* fANOVA + Assistant share full column height */
         .fanova-card {
-            flex: 1 1 42%;
-            min-height: 220px;
+            flex: 1 1 35%;
+            min-height: 180px;
             overflow: hidden;
             display: flex;
             flex-direction: column;
+        }
+
+        #dashboard-search-space-summary {
+            flex: 1 1 30%;
+            min-height: 150px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        #dashboard-search-space-summary .card-content {
+            flex: 1;
+            overflow-y: auto;
         }
 
         .fanova-card .card-content {

@@ -5,6 +5,7 @@ import hmac
 import traceback
 from typing import Optional, Dict, Any, List
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 from pydantic import BaseModel
@@ -60,6 +61,8 @@ from src.reporting import (
 init_db()
 
 app = FastAPI(title="Pathfinder HTTP Broker")
+_js_dir = os.path.join(os.path.dirname(__file__), "web", "js")
+app.mount("/js", StaticFiles(directory=_js_dir), name="js")
 
 # --- CORS ---
 def _allowed_origins() -> List[str]:
