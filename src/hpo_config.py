@@ -6,7 +6,33 @@ import os
 import json
 from typing import Any, Dict, Optional
 
+# Generic defaults for hyperparameter optimization configs.
+# These defaults can be overridden per-study in the system_configuration database table.
 DEFAULT_HPO_CONFIG: Dict[str, Any] = {
+    "config_version": 2,
+    "metric_loss_label": "Loss",
+    "metric_score_label": "Score",
+    "metric_names": {"score": "score", "loss": "loss"},
+    "desktop_notifications_enabled": False,
+    "eval_protocol": {
+        "enabled": False,
+        "fixed_resolution": None,
+        "train_resolution_param": "resolution",
+        "fixed_dice_attr": "score_eval_fixed",
+        "fixed_bce_attr": "loss_eval_fixed",
+        "dice_train_label": "Score (train)",
+        "dice_fixed_label": "Score (eval)",
+        "use_fixed_metric_for_pruning": True,
+        "prune_min_epoch": 5,
+        "prune_compare_same_resolution_only": True,
+        "prune_exclude_low_res_from_baseline": True,
+        "pareto_deploy_resolution_only": True,
+    },
+    "param_labels": {},
+}
+
+# Legacy defaults for U-Net crack segmentation studies (config_version = 1).
+LEGACY_DEFAULT_HPO_CONFIG: Dict[str, Any] = {
     "metric_loss_label": "BCE",
     "metric_score_label": "Dice",
     "desktop_notifications_enabled": False,
@@ -56,40 +82,60 @@ def load_hpo_config(study_name: Optional[str] = None) -> Dict[str, Any]:
                     study_name="_global", config_key="hpo_config"
                 ).first()
             if row:
-                data = json.loads(row.config_value)
+                loaded_data = json.loads(row.config_value)
+                # If we fell back to _global and the current study is NOT a legacy U-Net study,
+                # check if the global config is legacy (version 1). If it is, ignore it to
+                # prevent legacy poisoning of generic studies.
+                if row.study_name == "_global" and study_name not in ("seg_v1", "bridge_crack_study"):
+                    if loaded_data.get("config_version", 1) == 1:
+                        loaded_data = None
+                if loaded_data:
+                    data = loaded_data
     except Exception as e:
         print(f"Error loading hpo_config from DB: {e}")
 
     # Fallback to loading default template from disk if DB fails or has no config
     if not data:
-        data = DEFAULT_HPO_CONFIG
+        is_legacy = study_name in ("seg_v1", "bridge_crack_study")
+        data = LEGACY_DEFAULT_HPO_CONFIG if is_legacy else DEFAULT_HPO_CONFIG
         # Seed it into DB for this study so it exists in DB
         try:
-            save_hpo_config(DEFAULT_HPO_CONFIG, study_name)
+            save_hpo_config(data, study_name)
         except Exception:
             pass
 
+    is_legacy_name = study_name in ("seg_v1", "bridge_crack_study")
+    config_version = data.get("config_version", 1 if is_legacy_name else 2)
+    defaults = LEGACY_DEFAULT_HPO_CONFIG if config_version == 1 else DEFAULT_HPO_CONFIG
+
     try:
-        merged = json.loads(json.dumps(DEFAULT_HPO_CONFIG))
-        merged.update({k: v for k, v in data.items() if k != "eval_protocol"})
-        merged["eval_protocol"] = {**DEFAULT_HPO_CONFIG["eval_protocol"], **data.get("eval_protocol", {})}
-        merged["param_labels"] = {**DEFAULT_HPO_CONFIG.get("param_labels", {}), **data.get("param_labels", {})}
-        merged["legacy_param_aliases"] = {
-            **DEFAULT_HPO_CONFIG.get("legacy_param_aliases", {}),
-            **data.get("legacy_param_aliases", {}),
-        }
-        merged["legacy_capacity_values"] = {
-            **DEFAULT_HPO_CONFIG.get("legacy_capacity_values", {}),
-            **data.get("legacy_capacity_values", {}),
-        }
+        merged = json.loads(json.dumps(defaults))
+        merged.update({k: v for k, v in data.items() if k not in ("eval_protocol", "param_labels", "legacy_param_aliases", "legacy_capacity_values")})
+        merged["eval_protocol"] = {**defaults.get("eval_protocol", {}), **data.get("eval_protocol", {})}
+        merged["param_labels"] = {**defaults.get("param_labels", {}), **data.get("param_labels", {})}
+        if "legacy_param_aliases" in defaults or "legacy_param_aliases" in data:
+            merged["legacy_param_aliases"] = {
+                **defaults.get("legacy_param_aliases", {}),
+                **data.get("legacy_param_aliases", {}),
+            }
+        if "legacy_capacity_values" in defaults or "legacy_capacity_values" in data:
+            merged["legacy_capacity_values"] = {
+                **defaults.get("legacy_capacity_values", {}),
+                **data.get("legacy_capacity_values", {}),
+            }
         return merged
     except Exception:
-        return json.loads(json.dumps(DEFAULT_HPO_CONFIG))
+        return json.loads(json.dumps(defaults))
 
 
 def save_hpo_config(config: Dict[str, Any], study_name: Optional[str] = None) -> None:
     if not study_name:
         study_name = os.getenv("HPO_STUDY_NAME", "seg_v1")
+
+    # Enforce config_version on save to prevent client downgrades
+    config = dict(config)
+    is_legacy = study_name in ("seg_v1", "bridge_crack_study")
+    config["config_version"] = config.get("config_version", 1 if is_legacy else 2)
 
     try:
         from .db_manager import get_db_session

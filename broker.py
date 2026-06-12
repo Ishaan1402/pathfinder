@@ -480,7 +480,8 @@ def api_study_setup(study_name: str):
             "worker_entrypoint": context.get("worker_entrypoint"),
             "worker_env": context.get("worker_env"),
             "is_reference": is_reference,
-            "manifest_metrics": hpo_config.get("manifest_metrics")
+            "manifest_metrics": hpo_config.get("manifest_metrics"),
+            "colab_snippet": context.get("colab_snippet")
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

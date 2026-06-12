@@ -44,6 +44,8 @@ document.addEventListener("DOMContentLoaded", () => {
             window.HPOState.render.lastDashboardHeaderSnapshot = "";
             window.HPOState.render.lastAnalysisHeaderSnapshot = "";
             window.fetchStudyDetails();
+            window.fetchHpoConfig();
+            window.fetchSearchSpace();
             window.fetchFanova();
             if (typeof window.updateColabSnippet === 'function') {
                 window.updateColabSnippet();
@@ -67,8 +69,8 @@ document.addEventListener("DOMContentLoaded", () => {
     if (scoreLabelInput) {
         scoreLabelInput.addEventListener("input", (e) => {
             const val = e.target.value.trim() || "Score";
-            const trainLabelInput = document.getElementById("eval-dice-train-label");
-            const fixedLabelInput = document.getElementById("eval-dice-fixed-label");
+            const trainLabelInput = document.getElementById("eval-score-train-label");
+            const fixedLabelInput = document.getElementById("eval-score-fixed-label");
             if (trainLabelInput) trainLabelInput.placeholder = `${val} (train)`;
             if (fixedLabelInput) fixedLabelInput.placeholder = `${val} (eval)`;
         });
