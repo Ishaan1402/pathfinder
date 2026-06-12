@@ -182,10 +182,10 @@
                         <div class="tab-panel" id="settings-tab-eval">
                             <div class="eval-form-section">
                                 <p class="section-label">Metric labels</p>
-                                <div class="control-group"><div class="control-label"><span>Loss metric display name</span></div><input type="text" class="eval-text-input" id="eval-metric-loss-label" value="BCE"></div>
-                                <div class="control-group"><div class="control-label"><span>Score metric display name</span></div><input type="text" class="eval-text-input" id="eval-metric-score-label" value="Dice"></div>
-                                <div class="control-group"><div class="control-label"><span>Score train column label</span></div><input type="text" class="eval-text-input" id="eval-dice-train-label" value="Dice (train)"></div>
-                                <div class="control-group"><div class="control-label"><span>Score fixed column label</span></div><input type="text" class="eval-text-input" id="eval-dice-fixed-label" value="Dice (eval)"></div>
+                                <div class="control-group"><div class="control-label"><span>Loss metric display name</span></div><input type="text" class="eval-text-input" id="eval-metric-loss-label" value="Loss"></div>
+                                <div class="control-group"><div class="control-label"><span>Score metric display name</span></div><input type="text" class="eval-text-input" id="eval-metric-score-label" value="Score"></div>
+                                <div class="control-group"><div class="control-label"><span>Score train column label</span></div><input type="text" class="eval-text-input" id="eval-score-train-label" value="Score (train)"></div>
+                                <div class="control-group"><div class="control-label"><span>Score fixed column label</span></div><input type="text" class="eval-text-input" id="eval-score-fixed-label" value="Score (eval)"></div>
                             </div>
                             <div class="eval-form-section">
                                 <p class="section-label">Evaluation parameters</p>
@@ -222,7 +222,7 @@
                         <div class="card" id="worker-custom-card" style="margin-bottom: 0;">
                             <div class="card-header">Custom Training Script Integration</div>
                             <div class="card-content" style="padding: 12px 14px;">
-                                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 14px;"><label for="ngrok-url-input" style="font-size: 0.85rem; color: var(--text-muted); white-space: nowrap;">Broker URL:</label><input type="text" id="ngrok-url-input" placeholder="http://localhost:8123" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 0; padding: 6px 10px; color: var(--text-color); font-family: var(--font-main); font-size: 0.85rem; flex: 1;" oninput="updateColabSnippet()"></div>
+                                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 14px;"><label for="ngrok-url-input" style="font-size: 0.85rem; color: var(--text-muted); white-space: nowrap;">Broker URL:</label><input type="text" id="ngrok-url-input" placeholder="http://localhost:8000" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 0; padding: 6px 10px; color: var(--text-color); font-family: var(--font-main); font-size: 0.85rem; flex: 1;" oninput="updateColabSnippet()"></div>
                                 <pre id="custom-worker-snippet" style="background-color: #0b0c10; border: 1px solid var(--border-color); padding: 12px; margin-bottom: 14px; font-family: var(--font-mono); font-size: 0.85rem; overflow-x: auto; text-align: left; line-height: 1.6; color: #c9d1d9; white-space: pre-wrap;"></pre>
                                 <div style="font-size: 0.82rem; color: var(--text-muted); line-height: 1.4; margin-top: 10px;">Customize <code>worker_minimal.py</code> and return <code>(score, loss)</code>. The client wrapper handles ASHA early-stopping, CUDA OOM detection, and telemetry.</div>
                             </div>

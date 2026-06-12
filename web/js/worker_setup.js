@@ -53,6 +53,7 @@ async function updateColabSnippet() {
     let isReference = true;
     let workerEntrypoint = null;
     let workerEnv = null;
+    let colabSnippet = null;
 
     try {
         const response = await fetch(`/api/study_setup?study_name=${encodeURIComponent(studyName)}`);
@@ -62,6 +63,7 @@ async function updateColabSnippet() {
                 isReference = data.is_reference;
                 workerEntrypoint = data.worker_entrypoint;
                 workerEnv = data.worker_env;
+                colabSnippet = data.colab_snippet;
             }
         }
     } catch (err) {
@@ -70,7 +72,13 @@ async function updateColabSnippet() {
 
     // Render the Colab snippet text
     let snippet = "";
-    if (isReference) {
+    if (colabSnippet) {
+        snippet = colabSnippet
+            .replace(/\$\{baseUrl\}/g, baseUrl)
+            .replace(/\{baseUrl\}/g, baseUrl)
+            .replace(/\$\{studyName\}/g, studyName)
+            .replace(/\{studyName\}/g, studyName);
+    } else if (isReference) {
         snippet = `# 1. Install required packages
 !pip install -q albumentations opencv-python optuna requests sqlalchemy
 

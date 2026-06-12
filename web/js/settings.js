@@ -47,19 +47,19 @@ function populateEvalProtocolForm(config) {
     const ev = config?.eval_protocol || {};
     const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val ?? ""; };
     const setCheck = (id, val) => { const el = document.getElementById(id); if (el) el.checked = !!val; };
-    set("eval-metric-loss-label", config?.metric_loss_label || "BCE");
-    set("eval-metric-score-label", config?.metric_score_label || "Dice");
+    set("eval-metric-loss-label", config?.metric_loss_label || "Loss");
+    set("eval-metric-score-label", config?.metric_score_label || "Score");
     setCheck("desktop-notifs-enabled", !!config?.desktop_notifications_enabled);
     setCheck("eval-enabled", ev.enabled);
     set("eval-fixed-resolution", ev.fixed_resolution ?? "");
     set("eval-train-res-param", ev.train_resolution_param || "resolution");
     set("eval-low-warn", ev.low_train_res_warning ?? "");
-    set("eval-dice-train-label", ev.dice_train_label || "Dice (train)");
-    set("eval-dice-fixed-label", ev.dice_fixed_label || "Dice (eval)");
+    set("eval-score-train-label", ev.dice_train_label || "Score (train)");
+    set("eval-score-fixed-label", ev.dice_fixed_label || "Score (eval)");
     setCheck("eval-prune-on-fixed", ev.use_fixed_metric_for_pruning);
-    const scoreVal = config?.metric_score_label || "Dice";
-    const trainInput = document.getElementById("eval-dice-train-label");
-    const fixedInput = document.getElementById("eval-dice-fixed-label");
+    const scoreVal = config?.metric_score_label || "Score";
+    const trainInput = document.getElementById("eval-score-train-label");
+    const fixedInput = document.getElementById("eval-score-fixed-label");
     if (trainInput) trainInput.placeholder = `${scoreVal} (train)`;
     if (fixedInput) fixedInput.placeholder = `${scoreVal} (eval)`;
 }
@@ -69,20 +69,21 @@ async function saveEvalProtocol() {
     const lowRaw = document.getElementById("eval-low-warn")?.value;
     const payload = {
         ...window.HPOState.data.hpoConfig,
-        metric_loss_label: document.getElementById("eval-metric-loss-label")?.value || "BCE",
-        metric_score_label: document.getElementById("eval-metric-score-label")?.value || "Dice",
+        metric_loss_label: document.getElementById("eval-metric-loss-label")?.value || "Loss",
+        metric_score_label: document.getElementById("eval-metric-score-label")?.value || "Score",
         eval_protocol: {
             enabled: document.getElementById("eval-enabled")?.checked || false,
             fixed_resolution: fixedRaw === "" || fixedRaw == null ? null : Number(fixedRaw),
             train_resolution_param: document.getElementById("eval-train-res-param")?.value || "resolution",
             low_train_res_warning: lowRaw === "" || lowRaw == null ? null : Number(lowRaw),
-            dice_train_label: document.getElementById("eval-dice-train-label")?.value || "Dice (train)",
-            dice_fixed_label: document.getElementById("eval-dice-fixed-label")?.value || "Dice (eval)",
+            dice_train_label: document.getElementById("eval-score-train-label")?.value || "Score (train)",
+            dice_fixed_label: document.getElementById("eval-score-fixed-label")?.value || "Score (eval)",
             use_fixed_metric_for_pruning: document.getElementById("eval-prune-on-fixed")?.checked || false,
         },
     };
     try {
-        const res = await fetch("/api/hpo_config", {
+        const studyName = window.HPOState.session.studyName || '';
+        const res = await fetch(`/api/hpo_config?study_name=${encodeURIComponent(studyName)}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload),
@@ -105,7 +106,8 @@ async function saveIdeSettings() {
         desktop_notifications_enabled: !!document.getElementById("desktop-notifs-enabled")?.checked,
     };
     try {
-        const res = await fetch("/api/hpo_config", {
+        const studyName = window.HPOState.session.studyName || '';
+        const res = await fetch(`/api/hpo_config?study_name=${encodeURIComponent(studyName)}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload),

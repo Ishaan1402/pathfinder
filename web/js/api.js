@@ -76,8 +76,9 @@ async function fetchStudyDetails(throwOnError = false) {
 }
 
 async function fetchHpoConfig() {
+    const studyName = window.HPOState.session.studyName || '';
     try {
-        const res = await fetch("/api/hpo_config");
+        const res = await fetch(`/api/hpo_config?study_name=${encodeURIComponent(studyName)}`);
         if (!res.ok) return;
         window.HPOState.data.hpoConfig = await res.json();
         populateEvalProtocolForm(window.HPOState.data.hpoConfig);
@@ -88,8 +89,9 @@ async function fetchHpoConfig() {
 }
 
 async function fetchSearchSpace() {
+    const studyName = window.HPOState.session.studyName || '';
     try {
-        const res = await fetch("/api/search_space");
+        const res = await fetch(`/api/search_space?study_name=${encodeURIComponent(studyName)}`);
         if (!res.ok) return;
         window.HPOState.data.activeSearchSpace = await res.json();
         renderSearchSpace();

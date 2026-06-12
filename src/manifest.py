@@ -303,6 +303,7 @@ def _manifest_to_hpo_config(data: Dict[str, Any]) -> Dict[str, Any]:
     loss_eval_attr = eval_proto.get("loss_eval_attr", "loss_eval_fixed")
 
     hpo_config = {
+        "config_version": 2,
         "metric_loss_label": loss_label,
         "metric_score_label": score_label,
         "desktop_notifications_enabled": False,
@@ -321,8 +322,6 @@ def _manifest_to_hpo_config(data: Dict[str, Any]) -> Dict[str, Any]:
             "pareto_deploy_resolution_only": True,
         },
         "param_labels": {},
-        "legacy_param_aliases": {},
-        "legacy_capacity_values": {},
         "manifest_metrics": metrics
     }
     
