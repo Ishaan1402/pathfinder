@@ -296,6 +296,79 @@ def cmd_discard(args):
         
     print("Pending search space changes discarded.")
 
+def cmd_validate(args):
+    import yaml
+    from src.manifest import validate_manifest
+    path = args.manifest
+    try:
+        with open(path) as f:
+            data = yaml.safe_load(f)
+    except yaml.YAMLError as e:
+        print(f"✗ Invalid YAML: {e}")
+        sys.exit(1)
+    except FileNotFoundError:
+        print(f"✗ File not found: {path}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"✗ Error reading manifest: {e}")
+        sys.exit(1)
+    
+    errors, warnings = validate_manifest(data)
+    
+    if warnings:
+        for w in warnings:
+            print(f"⚠  {w}")
+    
+    if errors:
+        for e in errors:
+            print(f"✗ {e}")
+        print(f"\n{len(errors)} error(s) found. Fix them and re-run validate.")
+        sys.exit(1)
+    
+    print(f"✓ Manifest is valid: {len(data.get('params', []))} parameters, "
+          f"{len(data.get('metrics', {}).get('objectives', []))} objective(s)")
+    sys.exit(0)
+
+def cmd_init(args):
+    import yaml
+    from src.onboarding import init_study_from_manifest_dict
+
+    path = args.manifest
+    try:
+        with open(path) as f:
+            data = yaml.safe_load(f)
+    except Exception as e:
+        print(f"✗ Error reading manifest: {e}")
+        sys.exit(1)
+
+    init_db()
+
+    try:
+        result = init_study_from_manifest_dict(data, force=args.force)
+        print(result)
+        
+        worker_data = data.get("worker", {})
+        if worker_data.get("entrypoint"):
+            print(f"\nNext: set HPO_BROKER_URL and run: {worker_data['entrypoint']}")
+        sys.exit(0)
+    except Exception as e:
+        print(f"✗ {e}")
+        sys.exit(1)
+
+def cmd_manifest(args):
+    from hpo_mcp_server import export_manifest
+    
+    study_name = args.study
+    init_db()
+    
+    try:
+        yaml_str = export_manifest(study_name)
+        print(yaml_str)
+        sys.exit(0)
+    except Exception as e:
+        print(f"✗ {e}")
+        sys.exit(1)
+
 def main():
     parser = argparse.ArgumentParser(description="Pathfinder CLI Control")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -322,6 +395,19 @@ def main():
     p_flag.add_argument("--id", type=int, required=True, help="StudyReview row id")
     p_flag.add_argument("--unflag", action="store_true", help="Remove quality flag")
 
+    # Validate
+    p_validate = subparsers.add_parser("validate", help="Check manifest for errors")
+    p_validate.add_argument("manifest", help="Path to manifest YAML file")
+
+    # Init
+    p_init = subparsers.add_parser("init", help="Validate + register study")
+    p_init.add_argument("manifest", help="Path to manifest YAML file")
+    p_init.add_argument("--force", action="store_true", help="Force overwrite if study already exists")
+
+    # Manifest
+    p_manifest = subparsers.add_parser("manifest", help="Export study config to manifest YAML")
+    p_manifest.add_argument("study", help="Study name")
+
     args = parser.parse_args()
 
     if args.command == "status":
@@ -334,6 +420,12 @@ def main():
         cmd_discard(args)
     elif args.command == "flag-review":
         cmd_flag_review(args)
+    elif args.command == "validate":
+        cmd_validate(args)
+    elif args.command == "init":
+        cmd_init(args)
+    elif args.command == "manifest":
+        cmd_manifest(args)
 
 if __name__ == "__main__":
     main()
