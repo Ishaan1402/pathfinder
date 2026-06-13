@@ -528,3 +528,36 @@ def test_deep_cleanup_on_force_overwrite(client, base_manifest_data):
         assert session.query(TrialResult).filter_by(study_name=study_name).count() == 0
         assert session.query(SystemConfiguration).filter_by(study_name=study_name).count() > 0
 
+
+def test_manifest_validation_rules(base_manifest_data):
+    from src.manifest import validate_manifest, _manifest_to_hpo_config
+    
+    # Test 1: Invalid rules types
+    data = base_manifest_data.copy()
+    data["validation_rules"] = {
+        "enabled": "NOT_A_BOOL",
+        "score_min": "NOT_A_NUMBER"
+    }
+    errors, warnings = validate_manifest(data)
+    assert any("validation_rules.enabled must be a boolean" in e for e in errors)
+    assert any("validation_rules.score_min must be a numeric value" in e for e in errors)
+    
+    # Test 2: Valid rules success
+    data["validation_rules"] = {
+        "enabled": True,
+        "score_min": 0.1,
+        "loss_min": 0.05,
+        "max_epoch_jump": 0.2
+    }
+    errors, warnings = validate_manifest(data)
+    assert len(errors) == 0
+    
+    # Test 3: config mapping
+    config = _manifest_to_hpo_config(data)
+    rules = config.get("validation_rules")
+    assert rules is not None
+    assert rules["enabled"] is True
+    assert rules["score_min"] == 0.1
+    assert rules["loss_min"] == 0.05
+    assert rules["max_epoch_jump"] == 0.2
+
