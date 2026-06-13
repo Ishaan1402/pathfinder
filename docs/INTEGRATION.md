@@ -184,6 +184,79 @@ download-and-run snippet (including authenticated fetches of `colab_worker.py`).
 
 Call the MCP `init_from_manifest` tool (or CLI `init`) to create the Optuna study and seed configuration options from your manifest file. Use the `/health` broker endpoint to verify connectivity.
 
+## 7. CLI operations
+
+Pathfinder ships a command-line interface (`hpo_cli.py`) for database operations.
+
+### Validate a manifest
+
+```bash
+python hpo_cli.py validate train.hpo.yaml
+```
+
+Parses and validates the YAML manifest against the Pathfinder schema. Reports errors and warnings without touching the database.
+
+### Initialize a study from manifest
+
+```bash
+python hpo_cli.py init train.hpo.yaml
+python hpo_cli.py init train.hpo.yaml --force   # overwrite existing study
+```
+
+### Export a study
+
+```bash
+python hpo_cli.py export my_study --output my_study.json
+python hpo_cli.py export my_study --format csv --output my_study.csv
+```
+
+Exports the full study — Optuna trials, trial results, reviews, agent logs — into a portable JSON or CSV file. Useful for archiving, sharing, or migrating between machines.
+
+### Import a study
+
+```bash
+python hpo_cli.py import my_study.json
+python hpo_cli.py import my_study.json --rename new_study_name
+python hpo_cli.py import my_study.json --rename new_study_name --force  # overwrite if exists
+```
+
+Imports a study from a previously exported JSON file. Any trials that were `RUNNING` at export time are automatically converted to `FAIL` so they do not appear as zombie trials. If the import fails partway through (e.g. corrupted data), the entire import is rolled back atomically — no orphan rows are left.
+
+### Backup the database
+
+```bash
+python hpo_cli.py backup --output backup.db
+```
+
+Creates a point-in-time snapshot of the full SQLite database (`hpo_studies.db`) using SQLite's online backup API. Safe to run while the broker is running.
+
+## 8. Environment variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `HPO_BROKER_URL` | `http://localhost:8000` | URL the worker uses to reach the broker. |
+| `HPO_STUDY_NAME` | `seg_v1` | Default study name when not passed explicitly. |
+| `HPO_SECRET_TOKEN` | *(none)* | Bearer token required when `--tunnel` auth is enabled. |
+| `HPO_SPARKLINES` | `0` | Set to `1` to print a Unicode training curve on trial completion. |
+| `HPO_BACKUP_ON_START` | `0` | Set to `1` to run an automatic database backup when the broker starts. Equivalent to `--backup-on-start` CLI flag. |
+| `HPO_CAPTURE_FULL_ENV` | `0` | Set to `1` to capture the full `pip freeze` output rather than the default ML-library whitelist. Useful for exact reproducibility audits. |
+
+## 9. Validation guardrails schema
+
+`validation_rules` can be set in the manifest YAML or via **Settings → Eval protocol → Metric guardrails** in the dashboard.
+
+```yaml
+validation_rules:
+  enabled: true          # master toggle — set false to disable all checks
+  score_min: 0.0         # warn when score (higher-is-better objective) falls below this value
+  loss_min: 0.0          # warn when loss (lower-is-better objective) falls below this value
+  max_epoch_jump: 0.5    # warn when score changes by more than this fraction between consecutive epochs
+```
+
+When `enabled: false` (the default for new studies), no metric warnings are ever generated. Set `enabled: true` only when you have domain knowledge about valid metric ranges for your task.
+
+When a trial triggers a guardrail it is flagged as **Watch** in the study health, but the trial is still recorded — guardrails are advisory, not blocking (the only hard rejection is when *both* metrics are exactly `0.0`, history is empty, and `epoch ≤ 0` on a multi-objective study, which strongly indicates training never ran).
+
 ## Next steps
 
 - Open the dashboard (`index.html` served via the broker root) to watch trials, the Pareto front, and fANOVA importance.
