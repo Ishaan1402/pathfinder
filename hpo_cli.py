@@ -8,13 +8,30 @@ import sys
 import json
 import argparse
 import requests
+import csv
+import sqlite3
+import datetime
 from typing import Dict, Any, Optional
+import optuna
 
 # Make sure we can import from workspace root and src
 sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 
-from src.db_manager import get_db_session, init_db
-from src.schema import StudyStatus, SystemConfiguration, StudyReview
+from src.db_manager import get_db_session, init_db, DATABASE_URL
+from src.schema import (
+    StudyStatus,
+    SystemConfiguration,
+    StudyReview,
+    TrialResult,
+    TrialMetadata,
+    CompactedPacket,
+    StudyCard,
+    AgentReasoningLog,
+    InvalidProposal,
+    TrialLease,
+    CoordinatorMetric,
+    SuggestMetric,
+)
 from src.hpo_coordinator import (
     compute_review_heuristics,
     build_review_prompt,
@@ -25,7 +42,8 @@ from src.hpo_coordinator import (
     flag_study_review,
 )
 from src.hpo_config import load_hpo_config
-from broker import get_or_create_study, load_search_space, _apply_search_space_patch, _enqueue_manual_trial
+from src.suggest import get_or_create_study, load_study, _enqueue_manual_trial
+from broker import load_search_space, _apply_search_space_patch
 
 DEFAULT_STUDY = "bridge_crack_study"
 
@@ -369,6 +387,481 @@ def cmd_manifest(args):
         print(f"✗ {e}")
         sys.exit(1)
 
+def cmd_export(args):
+    init_db()
+    study_name = get_study_name(args)
+    fmt = args.format.lower()
+    
+    if fmt == "sqlite":
+        if not args.output:
+            print("✗ Error: --output file path is required for sqlite format export.")
+            sys.exit(1)
+        print("Note: SQLite export copies the entire database file, including all studies.")
+        db_path = DATABASE_URL.replace("sqlite:///", "") if DATABASE_URL.startswith("sqlite:///") else "hpo_studies.db"
+        if not os.path.exists(db_path):
+            print(f"✗ Error: Source database file '{db_path}' does not exist.")
+            sys.exit(1)
+        
+        os.makedirs(os.path.dirname(os.path.abspath(args.output)) or ".", exist_ok=True)
+        try:
+            src_conn = sqlite3.connect(db_path)
+            dst_conn = sqlite3.connect(args.output)
+            with dst_conn:
+                src_conn.backup(dst_conn)
+            dst_conn.close()
+            src_conn.close()
+            print(f"✓ Successfully exported database to '{args.output}' via SQLite online backup.")
+            sys.exit(0)
+        except Exception as e:
+            print(f"✗ Error exporting database: {e}")
+            sys.exit(1)
+            
+    try:
+        study = load_study(study_name)
+    except Exception as e:
+        print(f"✗ Error loading study '{study_name}': {e}")
+        sys.exit(1)
+        
+    if fmt == "csv":
+        if not args.output:
+            print("✗ Error: --output file path is required for csv format export.")
+            sys.exit(1)
+        os.makedirs(os.path.dirname(os.path.abspath(args.output)) or ".", exist_ok=True)
+        try:
+            trials = study.trials
+            with get_db_session() as session:
+                results = {r.trial_id: r for r in session.query(TrialResult).filter_by(study_name=study_name).all()}
+            
+            param_names = sorted(list(set(k for t in trials for k in t.params.keys())))
+            headers = ["trial_id", "trial_number", "state", "value", "values"] + param_names + [
+                "epoch_reached", "primary_score", "primary_loss", "gpu_model", 
+                "max_vram_gb", "oom_triggered", "worker_id", "git_commit", 
+                "dataset_version", "health_tier", "health_reason"
+            ]
+            
+            with open(args.output, "w", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow(headers)
+                for t in trials:
+                    res = results.get(t._trial_id)
+                    row = [
+                        t._trial_id,
+                        t.number,
+                        t.state.name,
+                        t.value,
+                        json.dumps(t.values) if t.values else None,
+                    ]
+                    for p in param_names:
+                        row.append(t.params.get(p))
+                    if res:
+                        row += [
+                            res.epoch_reached,
+                            res.primary_score,
+                            res.primary_loss,
+                            res.gpu_model,
+                            res.max_vram_gb,
+                            res.oom_triggered,
+                            res.worker_id,
+                            res.git_commit,
+                            res.dataset_version,
+                            res.health_tier,
+                            res.health_reason
+                        ]
+                    else:
+                        row += [None] * 11
+                    writer.writerow(row)
+            print(f"✓ Successfully exported study '{study_name}' trials to '{args.output}' as CSV.")
+            sys.exit(0)
+        except Exception as e:
+            print(f"✗ Error exporting CSV: {e}")
+            sys.exit(1)
+            
+    elif fmt == "json":
+        export_data = {
+            "study_name": study_name,
+            "directions": [d.name for d in study.directions],
+            "trials": [],
+            "trial_results": [],
+            "trial_metadata": [],
+            "system_configuration": [],
+            "compacted_packets": [],
+            "study_cards": [],
+            "agent_reasoning_logs": [],
+            "study_reviews": [],
+            "study_status": [],
+            "invalid_proposals": [],
+            "coordinator_metrics": [],
+            "suggest_metrics": []
+        }
+        
+        from optuna.distributions import distribution_to_json
+        for t in study.trials:
+            dists_serialized = {}
+            for k, dist in t.distributions.items():
+                dists_serialized[k] = distribution_to_json(dist)
+                
+            export_data["trials"].append({
+                "trial_id": t._trial_id,
+                "number": t.number,
+                "state": t.state.name,
+                "value": t.value if t.values is None or len(t.values) <= 1 else None,
+                "values": t.values,
+                "datetime_start": t.datetime_start.isoformat() if t.datetime_start else None,
+                "datetime_complete": t.datetime_complete.isoformat() if t.datetime_complete else None,
+                "params": t.params,
+                "distributions": dists_serialized,
+                "user_attrs": t.user_attrs,
+                "system_attrs": t.system_attrs,
+                "intermediate_values": {str(k): v for k, v in t.intermediate_values.items()}
+            })
+            
+        with get_db_session() as session:
+            results = session.query(TrialResult).filter_by(study_name=study_name).all()
+            export_data["trial_results"] = [r.to_dict() for r in results]
+            
+            metadata = session.query(TrialMetadata).filter_by(study_name=study_name).all()
+            export_data["trial_metadata"] = [m.to_dict() for m in metadata]
+            
+            sys_configs = session.query(SystemConfiguration).filter_by(study_name=study_name).all()
+            export_data["system_configuration"] = [sc.to_dict() for sc in sys_configs]
+            
+            packets = session.query(CompactedPacket).filter_by(study_name=study_name).all()
+            export_data["compacted_packets"] = [
+                {
+                    "trials_evaluated": p.trials_evaluated,
+                    "packet_json": p.packet_json,
+                    "created_at": p.created_at.isoformat() if p.created_at else None
+                }
+                for p in packets
+            ]
+            
+            cards = session.query(StudyCard).filter_by(study_name=study_name).all()
+            export_data["study_cards"] = [c.to_dict() for c in cards]
+            
+            reasoning = session.query(AgentReasoningLog).filter_by(study_name=study_name).all()
+            export_data["agent_reasoning_logs"] = [ar.to_dict() for ar in reasoning]
+            
+            reviews = session.query(StudyReview).filter_by(study_name=study_name).all()
+            export_data["study_reviews"] = [sr.to_dict() for sr in reviews]
+            
+            status = session.query(StudyStatus).filter_by(study_name=study_name).all()
+            export_data["study_status"] = [s.to_dict() for s in status]
+            
+            proposals = session.query(InvalidProposal).filter_by(study_name=study_name).all()
+            export_data["invalid_proposals"] = [ip.to_dict() for ip in proposals]
+            
+            c_metrics = session.query(CoordinatorMetric).filter_by(study_name=study_name).all()
+            export_data["coordinator_metrics"] = [cm.to_dict() for cm in c_metrics]
+            
+            s_metrics = session.query(SuggestMetric).filter_by(study_name=study_name).all()
+            export_data["suggest_metrics"] = [sm.to_dict() for sm in s_metrics]
+            
+        if args.output:
+            os.makedirs(os.path.dirname(os.path.abspath(args.output)) or ".", exist_ok=True)
+            with open(args.output, "w") as f:
+                json.dump(export_data, f, indent=2)
+            print(f"✓ Successfully exported study '{study_name}' JSON to '{args.output}'.")
+        else:
+            print(json.dumps(export_data, indent=2))
+        sys.exit(0)
+
+def cmd_import(args):
+    init_db()
+    file_path = args.file
+    if not os.path.exists(file_path):
+        print(f"✗ Error: Import file '{file_path}' not found.")
+        sys.exit(1)
+        
+    try:
+        with open(file_path, "r") as f:
+            export_data = json.load(f)
+    except Exception as e:
+        print(f"✗ Error reading import JSON: {e}")
+        sys.exit(1)
+        
+    # JSON Validation
+    if not isinstance(export_data, dict):
+        print("✗ Error: Invalid import JSON format (root must be a dictionary).")
+        sys.exit(1)
+        
+    original_study_name = export_data.get("study_name")
+    new_study_name = args.rename or original_study_name
+    
+    if not original_study_name:
+        print("✗ Error: Invalid import JSON format (missing study_name).")
+        sys.exit(1)
+        
+    if not isinstance(export_data.get("trials"), list):
+        print("✗ Error: Invalid import JSON format (trials must be a list).")
+        sys.exit(1)
+        
+    if "directions" not in export_data:
+        print("✗ Error: Invalid import JSON format (missing directions).")
+        sys.exit(1)
+        
+    for t in export_data.get("trials", []):
+        if not isinstance(t, dict) or "trial_id" not in t or "number" not in t or "state" not in t:
+            print("✗ Error: Invalid import JSON format (trial objects must contain trial_id, number, and state).")
+            sys.exit(1)
+            
+    try:
+        optuna.load_study(study_name=new_study_name, storage=DATABASE_URL)
+        if not args.force:
+            print(f"✗ Error: Study '{new_study_name}' already exists. Use --force to overwrite.")
+            sys.exit(1)
+            
+        print(f"Deleting existing study '{new_study_name}' as --force was specified...")
+        optuna.delete_study(study_name=new_study_name, storage=DATABASE_URL)
+        with get_db_session() as session:
+            for model in [TrialResult, TrialMetadata, SystemConfiguration, CompactedPacket, StudyCard, AgentReasoningLog, StudyReview, StudyStatus, InvalidProposal, TrialLease, CoordinatorMetric, SuggestMetric]:
+                session.query(model).filter_by(study_name=new_study_name).delete()
+    except KeyError:
+        pass
+        
+    directions = [d.lower() for d in export_data.get("directions", ["minimize", "maximize"])]
+    try:
+        study = optuna.create_study(
+            study_name=new_study_name,
+            storage=DATABASE_URL,
+            directions=directions,
+            load_if_exists=True
+        )
+    except Exception as e:
+        print(f"✗ Error creating study '{new_study_name}': {e}")
+        sys.exit(1)
+        
+    try:
+        print(f"Importing Optuna trials...")
+        trial_id_mapping = {}
+        from optuna.trial import FrozenTrial, TrialState
+        from optuna.distributions import json_to_distribution
+        
+        sorted_trials = sorted(export_data.get("trials", []), key=lambda t: t.get("number", 0))
+        for t in sorted_trials:
+            dt_start = datetime.datetime.fromisoformat(t["datetime_start"]) if t.get("datetime_start") else None
+            dt_complete = datetime.datetime.fromisoformat(t["datetime_complete"]) if t.get("datetime_complete") else None
+            
+            dists = {}
+            for param_name, dist_json_str in t.get("distributions", {}).items():
+                dists[param_name] = json_to_distribution(dist_json_str)
+                
+            t_state_name = t["state"]
+            if t_state_name == "RUNNING":
+                t_state_name = "FAIL"
+                if not dt_complete:
+                    dt_complete = datetime.datetime.utcnow()
+
+            frozen_trial = FrozenTrial(
+                number=t["number"],
+                state=TrialState[t_state_name],
+                value=t.get("value"),
+                values=t.get("values"),
+                datetime_start=dt_start,
+                datetime_complete=dt_complete,
+                params=t.get("params", {}),
+                distributions=dists,
+                user_attrs=t.get("user_attrs", {}),
+                system_attrs=t.get("system_attrs", {}),
+                intermediate_values={int(k): float(v) for k, v in t.get("intermediate_values", {}).items()},
+                trial_id=t["trial_id"]
+            )
+            study.add_trial(frozen_trial)
+            
+            new_trial = study.trials[-1]
+            trial_id_mapping[t["trial_id"]] = new_trial._trial_id
+            
+        print(f"Importing custom Pathfinder tables...")
+        with get_db_session() as session:
+            # Cache invalidation: delete old compacted packets
+            session.query(CompactedPacket).filter_by(study_name=new_study_name).delete()
+            
+            for sc in export_data.get("system_configuration", []):
+                session.add(SystemConfiguration(
+                    study_name=new_study_name,
+                    config_key=sc["config_key"],
+                    config_value=sc["config_value"],
+                    version=sc.get("version", 1)
+                ))
+                
+            for r in export_data.get("trial_results", []):
+                orig_trial_id = r["trial_id"]
+                new_trial_id = trial_id_mapping.get(orig_trial_id)
+                if new_trial_id is None:
+                    continue
+                
+                created_at = datetime.datetime.fromisoformat(r["created_at"]) if r.get("created_at") else datetime.datetime.utcnow()
+                session.add(TrialResult(
+                    trial_id=new_trial_id,
+                    study_name=new_study_name,
+                    epoch_reached=r["epoch_reached"],
+                    primary_score=r.get("primary_score"),
+                    primary_loss=r.get("primary_loss"),
+                    score_history_json=json.dumps(r.get("score_history", [])),
+                    weights_path=r.get("weights_path"),
+                    gpu_model=r.get("gpu_model"),
+                    max_vram_gb=r.get("max_vram_gb"),
+                    oom_triggered=r.get("oom_triggered"),
+                    failure_tag=r.get("failure_tag"),
+                    worker_id=r.get("worker_id"),
+                    git_commit=r.get("git_commit"),
+                    dataset_version=r.get("dataset_version"),
+                    health_tier=r.get("health_tier"),
+                    health_reason=r.get("health_reason"),
+                    created_at=created_at
+                ))
+                
+            for m in export_data.get("trial_metadata", []):
+                orig_trial_id = m["trial_id"]
+                new_trial_id = trial_id_mapping.get(orig_trial_id)
+                if new_trial_id is None:
+                    continue
+                created_at = datetime.datetime.fromisoformat(m["created_at"]) if m.get("created_at") else datetime.datetime.utcnow()
+                session.add(TrialMetadata(
+                    trial_id=new_trial_id,
+                    study_name=new_study_name,
+                    meta_key=m["meta_key"],
+                    meta_value=m["meta_value"],
+                    created_at=created_at
+                ))
+                
+            for ar in export_data.get("agent_reasoning_logs", []):
+                orig_trial_id = ar["trial_id"]
+                new_trial_id = trial_id_mapping.get(orig_trial_id)
+                if new_trial_id is None:
+                    continue
+                created_at = datetime.datetime.fromisoformat(ar["created_at"]) if ar.get("created_at") else datetime.datetime.utcnow()
+                session.add(AgentReasoningLog(
+                    trial_id=new_trial_id,
+                    study_name=new_study_name,
+                    model_version=ar["model_version"],
+                    prompt_strategy=ar["prompt_strategy"],
+                    predicted_outcome_rationale=ar["predicted_outcome_rationale"],
+                    estimated_score_improvement=ar["estimated_score_improvement"],
+                    actual_score_improvement=ar.get("actual_score_improvement"),
+                    created_at=created_at
+                ))
+                
+            # CompactedPackets: Omitted/cache invalidation (skip importing)
+                
+            for c in export_data.get("study_cards", []):
+                created_at = datetime.datetime.fromisoformat(c["created_at"]) if c.get("created_at") else datetime.datetime.utcnow()
+                session.add(StudyCard(
+                    study_name=new_study_name,
+                    card_type=c["card_type"],
+                    file_path=c["file_path"],
+                    content_hash=c["content_hash"],
+                    metadata_json=json.dumps(c.get("metadata", {})),
+                    created_at=created_at
+                ))
+                
+            for sr in export_data.get("study_reviews", []):
+                created_at = datetime.datetime.fromisoformat(sr["created_at"]) if sr.get("created_at") else datetime.datetime.utcnow()
+                applied_at = datetime.datetime.fromisoformat(sr["applied_at"]) if sr.get("applied_at") else None
+                outcome_measured_at = datetime.datetime.fromisoformat(sr["outcome_measured_at"]) if sr.get("outcome_measured_at") else None
+                
+                review = StudyReview(
+                    study_name=new_study_name,
+                    health_rating=sr.get("health_rating"),
+                    summary=sr["summary"],
+                    policy_action=sr.get("policy_action", "no_change"),
+                    model_version=sr.get("model_version", "unspecified"),
+                    prompt_strategy=sr.get("prompt_strategy", "coordinator_review"),
+                    trials_evaluated=sr.get("trials_evaluated", 0),
+                    estimated_score_improvement=sr.get("estimated_score_improvement"),
+                    cited_best_trial=sr.get("cited_best_trial"),
+                    confidence=sr.get("confidence", "high"),
+                    baseline_best_score=sr.get("baseline_best_score"),
+                    applied_at_completed_count=sr.get("applied_at_completed_count"),
+                    applied_at=applied_at,
+                    actual_score_improvement=sr.get("actual_score_improvement"),
+                    outcome_measured_at=outcome_measured_at,
+                    outcome_status=sr.get("outcome_status", "pending"),
+                    quality_flagged=sr.get("quality_flagged", False),
+                    created_at=created_at
+                )
+                review.set_reasons(sr.get("reasons", []))
+                session.add(review)
+                
+            for s in export_data.get("study_status", []):
+                health_updated_at = datetime.datetime.fromisoformat(s["health_updated_at"]) if s.get("health_updated_at") else datetime.datetime.utcnow()
+                session.add(StudyStatus(
+                    study_name=new_study_name,
+                    health_tier=s.get("health_tier", "healthy"),
+                    health_reason=s.get("health_reason"),
+                    health_updated_at=health_updated_at,
+                    nudge_dismissed_trials=s.get("nudge_dismissed_trials")
+                ))
+                
+            for ip in export_data.get("invalid_proposals", []):
+                created_at = datetime.datetime.fromisoformat(ip["created_at"]) if ip.get("created_at") else datetime.datetime.utcnow()
+                session.add(InvalidProposal(
+                    study_name=new_study_name,
+                    model_version=ip["model_version"],
+                    prompt_strategy=ip["prompt_strategy"],
+                    invalid_parameters=json.dumps(ip.get("invalid_parameters", {})),
+                    validation_error=ip["validation_error"],
+                    created_at=created_at
+                ))
+                
+            for cm in export_data.get("coordinator_metrics", []):
+                timestamp = datetime.datetime.fromisoformat(cm["timestamp"]) if cm.get("timestamp") else datetime.datetime.utcnow()
+                session.add(CoordinatorMetric(
+                    study_name=new_study_name,
+                    timestamp=timestamp,
+                    model=cm["model"],
+                    latency_ms=cm["latency_ms"],
+                    action_taken=cm["action_taken"],
+                    trials_at_review=cm["trials_at_review"]
+                ))
+                
+            for sm in export_data.get("suggest_metrics", []):
+                timestamp = datetime.datetime.fromisoformat(sm["timestamp"]) if sm.get("timestamp") else datetime.datetime.utcnow()
+                session.add(SuggestMetric(
+                    study_name=new_study_name,
+                    timestamp=timestamp,
+                    latency_ms=sm["latency_ms"],
+                    source=sm["source"]
+                ))
+    except Exception as err:
+        print(f"✗ Error during import execution: {err}")
+        print("Rolling back database transaction and deleting half-imported study...")
+        try:
+            from src.onboarding import delete_study_internal
+            delete_study_internal(study_name=new_study_name, confirm=True)
+        except Exception as delete_err:
+            print(f"Failed to delete study: {delete_err}")
+        sys.exit(1)
+        
+    print(f"✓ Successfully imported study '{new_study_name}' (mapped {len(trial_id_mapping)} trials).")
+    sys.exit(0)
+
+def cmd_backup(args):
+    init_db()
+    if args.output:
+        dest_path = args.output
+    else:
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        dest_path = f"backups/hpo_backup_{timestamp}.db"
+        
+    db_path = DATABASE_URL.replace("sqlite:///", "") if DATABASE_URL.startswith("sqlite:///") else "hpo_studies.db"
+    if not os.path.exists(db_path):
+        print(f"✗ Error: Source database file '{db_path}' does not exist.")
+        sys.exit(1)
+        
+    os.makedirs(os.path.dirname(os.path.abspath(dest_path)) or ".", exist_ok=True)
+    try:
+        src_conn = sqlite3.connect(db_path)
+        dst_conn = sqlite3.connect(dest_path)
+        with dst_conn:
+            src_conn.backup(dst_conn)
+        dst_conn.close()
+        src_conn.close()
+        print(f"✓ Backup created successfully: '{dest_path}'")
+        sys.exit(0)
+    except Exception as e:
+        print(f"✗ Backup failed: {e}")
+        sys.exit(1)
+
 def main():
     parser = argparse.ArgumentParser(description="Pathfinder CLI Control")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -408,6 +901,22 @@ def main():
     p_manifest = subparsers.add_parser("manifest", help="Export study config to manifest YAML")
     p_manifest.add_argument("study", help="Study name")
 
+    # Export
+    p_export = subparsers.add_parser("export", help="Export HPO study trials and config")
+    p_export.add_argument("--study", help="Study name")
+    p_export.add_argument("--format", choices=["json", "csv", "sqlite"], default="json", help="Export format (default: json)")
+    p_export.add_argument("--output", help="File path to save the export (required for csv and sqlite)")
+
+    # Import
+    p_import = subparsers.add_parser("import", help="Import HPO study trials and config from JSON file")
+    p_import.add_argument("file", help="Path to JSON file to import")
+    p_import.add_argument("--rename", help="Rename the study during import")
+    p_import.add_argument("--force", action="store_true", help="Overwrite study if it already exists")
+
+    # Backup
+    p_backup = subparsers.add_parser("backup", help="Create a safe online backup of the SQLite database")
+    p_backup.add_argument("--output", help="Custom backup file path")
+
     args = parser.parse_args()
 
     if args.command == "status":
@@ -426,6 +935,12 @@ def main():
         cmd_init(args)
     elif args.command == "manifest":
         cmd_manifest(args)
+    elif args.command == "export":
+        cmd_export(args)
+    elif args.command == "import":
+        cmd_import(args)
+    elif args.command == "backup":
+        cmd_backup(args)
 
 if __name__ == "__main__":
     main()

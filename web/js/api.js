@@ -113,10 +113,10 @@ async function fetchFanova() {
         const container = document.getElementById("fanova-container");
 
         if (!data.success) {
-            const msg = data.message || "Unable to compute fANOVA.";
+            const msg = data.message || "Need at least 2 completed trials for importance analysis";
             if (window.HPOState.render.lastFanovaRenderKey === msg) return;
             window.HPOState.render.lastFanovaRenderKey = msg;
-            container.innerHTML = `<div class="fanova-empty">${msg}</div>`;
+            window.showEmptyState("fanova-container", msg);
             return;
         }
 

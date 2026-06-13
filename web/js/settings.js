@@ -45,6 +45,7 @@ async function fetchPendingChanges(throwOnError = false) {
 
 function populateEvalProtocolForm(config) {
     const ev = config?.eval_protocol || {};
+    const vr = config?.validation_rules || {};
     const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val ?? ""; };
     const setCheck = (id, val) => { const el = document.getElementById(id); if (el) el.checked = !!val; };
     set("eval-metric-loss-label", config?.metric_loss_label || "Loss");
@@ -57,6 +58,11 @@ function populateEvalProtocolForm(config) {
     set("eval-score-train-label", ev.dice_train_label || "Score (train)");
     set("eval-score-fixed-label", ev.dice_fixed_label || "Score (eval)");
     setCheck("eval-prune-on-fixed", ev.use_fixed_metric_for_pruning);
+    // Validation rules
+    setCheck("validation-rules-enabled", !!vr.enabled);
+    set("validation-score-min", vr.score_min ?? "");
+    set("validation-loss-min", vr.loss_min ?? "");
+    set("validation-max-epoch-jump", vr.max_epoch_jump ?? "");
     const scoreVal = config?.metric_score_label || "Score";
     const trainInput = document.getElementById("eval-score-train-label");
     const fixedInput = document.getElementById("eval-score-fixed-label");
@@ -67,6 +73,9 @@ function populateEvalProtocolForm(config) {
 async function saveEvalProtocol() {
     const fixedRaw = document.getElementById("eval-fixed-resolution")?.value;
     const lowRaw = document.getElementById("eval-low-warn")?.value;
+    const scoreMinRaw = document.getElementById("validation-score-min")?.value;
+    const lossMinRaw = document.getElementById("validation-loss-min")?.value;
+    const epochJumpRaw = document.getElementById("validation-max-epoch-jump")?.value;
     const payload = {
         ...window.HPOState.data.hpoConfig,
         metric_loss_label: document.getElementById("eval-metric-loss-label")?.value || "Loss",
@@ -79,6 +88,12 @@ async function saveEvalProtocol() {
             dice_train_label: document.getElementById("eval-score-train-label")?.value || "Score (train)",
             dice_fixed_label: document.getElementById("eval-score-fixed-label")?.value || "Score (eval)",
             use_fixed_metric_for_pruning: document.getElementById("eval-prune-on-fixed")?.checked || false,
+        },
+        validation_rules: {
+            enabled: document.getElementById("validation-rules-enabled")?.checked || false,
+            score_min: scoreMinRaw === "" || scoreMinRaw == null ? null : Number(scoreMinRaw),
+            loss_min: lossMinRaw === "" || lossMinRaw == null ? null : Number(lossMinRaw),
+            max_epoch_jump: epochJumpRaw === "" || epochJumpRaw == null ? null : Number(epochJumpRaw),
         },
     };
     try {

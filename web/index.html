@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <script src="/js/auth.js?v=1.0.3"></script>
+    <script src="/js/auth.js"></script>
     <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Pathfinder</title>
     <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700;800&family=Geist+Mono:wght@300;400;500;600;700&family=VT323&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script><link rel="stylesheet" href="/styles.css">
@@ -52,7 +52,7 @@
             </header>
             <div class="content-view active" id="dashboard-view">
                 <div class="dashboard-main">
-                    <div class="card">
+                    <div class="card" id="dashboard-trial-monitor-card">
                         <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
                             <span>Live Trial Monitor</span>
                             <div style="display: flex; gap: 8px; align-items: center; font-size: 0.75rem;">
@@ -72,6 +72,17 @@
                                 </tbody>
                             </table>
                             </div>
+                        </div>
+                    </div>
+                    <div class="card" id="dashboard-getting-started-card" style="display: none;">
+                        <div class="card-header">Getting Started</div>
+                        <div class="card-content" style="padding: 20px; color: var(--text-muted); font-size: 0.85rem; line-height: 1.5;">
+                            <h4 style="color: var(--text-color); margin-top: 0; margin-bottom: 12px; font-weight: 500;">How to run a training worker:</h4>
+                            <ol style="margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px;">
+                                <li>Configure your search space and evaluation protocol in the <strong>Search Space</strong> tab.</li>
+                                <li>Go to the <a href="#worker-setup" onclick="window.location.hash = 'worker-setup'; return false;" style="color: var(--accent-color); text-decoration: underline; font-weight: 500;">Worker Setup</a> tab to copy the worker integration script (Custom or Colab).</li>
+                                <li>Run the worker script on your GPU machine. The worker will connect to this broker, request trials, and report epoch metrics.</li>
+                            </ol>
                         </div>
                     </div>
                     <div class="card">
@@ -115,7 +126,8 @@
                 </div>
             </div>
             <div class="content-view" id="analysis-view">
-                <div class="analysis-layout" style="height: 100%; display: flex; flex-direction: column;">
+                <div id="analysis-empty-state" style="display: none; align-items: center; justify-content: center; height: 100%; min-height: 250px; color: var(--text-muted); font-family: var(--font-main); font-size: 0.875rem; text-align: center; border: 1px solid var(--border-color); background-color: rgba(255, 255, 255, 0.02); padding: 40px; box-sizing: border-box;">No trial data yet. Start a worker to begin.</div>
+                <div class="analysis-layout" id="analysis-main-layout" style="flex: 1; min-height: 0; display: flex; flex-direction: column;">
                     <div id="analysis-status-ticker" class="analysis-status-ticker hidden" data-tier="healthy" aria-live="polite"><div class="ticker-viewport"><div id="analysis-ticker-track" class="ticker-track"></div></div></div>
                     <div class="tab-bar" style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
                         <button type="button" class="tab-btn active" id="analysis-tab-btn-table" onclick="window.location.hash = 'analysis-table'">Trials Table</button><button type="button" class="tab-btn" id="analysis-tab-btn-pathways" onclick="window.location.hash = 'analysis-pathways'">Pathways Plot</button><button type="button" class="tab-btn" id="analysis-tab-btn-timeline" onclick="window.location.hash = 'analysis-timeline'">Pruning Timeline</button>
@@ -204,6 +216,16 @@
                                     <label class="hpo-toggle hpo-toggle--eval"><input type="checkbox" id="eval-prune-on-fixed"><span class="hpo-toggle-box" aria-hidden="true"></span><span class="hpo-toggle-label">Use fixed-eval score for ASHA pruning (advanced)</span></label>
                                 </div>
                             </div>
+                            <div class="eval-form-section">
+                                <p class="section-label">Metric guardrails</p>
+                                <div class="control-group control-group--toggle">
+                                    <div class="control-label"><span>Enable validation rules</span></div>
+                                    <label class="hpo-toggle hpo-toggle--eval"><input type="checkbox" id="validation-rules-enabled"><span class="hpo-toggle-box" aria-hidden="true"></span><span class="hpo-toggle-label">Flag trials with suspicious metric values as warnings</span></label>
+                                </div>
+                                <div class="control-group"><div class="control-label"><span>Min score threshold</span></div><input type="number" class="number-input number-input--compact" id="validation-score-min" step="0.01" placeholder="e.g. 0.0"></div>
+                                <div class="control-group"><div class="control-label"><span>Min loss threshold</span></div><input type="number" class="number-input number-input--compact" id="validation-loss-min" step="0.01" placeholder="e.g. 0.0"></div>
+                                <div class="control-group"><div class="control-label"><span>Max epoch score jump (fraction)</span></div><input type="number" class="number-input number-input--compact" id="validation-max-epoch-jump" step="0.05" min="0" max="10" placeholder="e.g. 0.5"></div>
+                            </div>
                             <div class="eval-form-actions"><button type="button" class="toolbar-btn" onclick="saveEvalProtocol()">Save eval protocol</button></div>
                         </div>
                     </div>
@@ -255,6 +277,27 @@
                     <div style="display: flex; flex-direction: column; gap: 16px;">
                         <div><h4 style="font-size: 0.85rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 8px; font-weight: 600;">Hyperparameters</h4><div class="param-grid" id="modal-params"></div></div>
                         <div id="modal-oom-section" style="display:none; background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.35); padding: 10px 12px; font-size: 0.8rem; line-height: 1.55;"><div style="color: #f87171; font-weight: 700; margin-bottom: 4px;">⚠ Out-of-Memory Crash</div><div id="modal-oom-detail" style="color: var(--text-muted);"></div></div>
+                        <div id="modal-health-warning-section" style="display:none; background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.35); padding: 10px 12px; font-size: 0.8rem; line-height: 1.55;"><div style="color: #fbbf24; font-weight: 700; margin-bottom: 4px;">⚠ Metric Validation Warning</div><div id="modal-health-warning-detail" style="color: var(--text-muted);"></div></div>
+                        <div id="modal-env-section" style="display:none; border: 1px solid var(--border-color); background: rgba(255,255,255,0.01); font-size: 0.8rem;">
+                            <div class="card-header" style="cursor: pointer; user-select: none; display: flex; align-items: center; justify-content: space-between; padding: 8px 10px;" onclick="window.toggleModalEnvCard()">
+                                <div style="display: flex; align-items: center; gap: 6px;">
+                                    <svg id="modal-env-chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" style="transition: transform 0.2s ease; transform: rotate(180deg);"><path d="M18 15l-6-6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                                    <span style="font-weight: 500;">Environment Details</span>
+                                </div>
+                            </div>
+                            <div id="modal-env-content" style="padding: 10px; display: none; border-top: 1px solid var(--border-color); flex-direction: column; gap: 6px;">
+                                <div style="display: flex; justify-content: space-between;"><span style="color: var(--text-muted);">Hostname:</span><span id="modal-env-hostname" class="td-mono"></span></div>
+                                <div style="display: flex; justify-content: space-between;"><span style="color: var(--text-muted);">Platform:</span><span id="modal-env-platform" class="td-mono"></span></div>
+                                <div style="display: flex; justify-content: space-between;"><span style="color: var(--text-muted);">Python version:</span><span id="modal-env-python" class="td-mono"></span></div>
+                                <div style="display: flex; justify-content: space-between;"><span style="color: var(--text-muted);">CUDA version:</span><span id="modal-env-cuda" class="td-mono"></span></div>
+                                <div style="display: flex; justify-content: space-between;"><span style="color: var(--text-muted);">Git commit:</span><span id="modal-env-git" class="td-mono"></span></div>
+                                <div style="display: flex; justify-content: space-between;"><span style="color: var(--text-muted);">Dataset version:</span><span id="modal-env-dataset" class="td-mono"></span></div>
+                                <div style="display: flex; flex-direction: column; gap: 4px; margin-top: 6px;">
+                                    <span style="color: var(--text-muted);">Pip Freeze:</span>
+                                    <textarea id="modal-env-pip" readonly style="width: 100%; height: 80px; font-family: var(--font-mono); font-size: 0.72rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); padding: 4px; color: var(--text-color); resize: none; outline: none;"></textarea>
+                                </div>
+                            </div>
+                        </div>
                         <div><h4 id="modal-rationale-title" style="font-size: 0.85rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 6px; font-weight: 600;">Suggestion</h4><div class="thought-card" style="max-height: 140px; background-color: rgba(255,255,255,0.01);"><p class="thought-quote" id="modal-reasoning" style="margin-bottom: 0; font-size: 0.82rem;"></p></div></div>
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 8px;">
@@ -307,6 +350,6 @@
             </div>
         </div>
     </div>
-    <script src="/js/state.js?v=1.0.3"></script><script src="/js/utils.js?v=1.0.3"></script><script src="/js/theme.js?v=1.0.3"></script><script src="/js/routing.js?v=1.0.3"></script><script src="/js/api.js?v=1.0.3"></script><script src="/js/settings.js?v=1.0.3"></script><script src="/js/export.js?v=1.0.3"></script><script src="/js/worker_setup.js?v=1.0.3"></script><script src="/js/table_infra.js?v=1.0.3"></script><script src="/js/table_filters.js?v=1.0.3"></script><script src="/js/table_render.js?v=1.0.3"></script><script src="/js/charts_utils.js?v=1.0.3"></script><script src="/js/charts_pareto.js?v=1.0.3"></script><script src="/js/charts_pathways_math.js?v=1.0.3"></script><script src="/js/charts_pathways_render.js?v=1.0.3"></script><script src="/js/charts_timeline.js?v=1.0.3"></script><script src="/js/charts_modal.js?v=1.0.3"></script><script src="/js/modal.js?v=1.0.3"></script><script src="/js/health.js?v=1.0.3"></script><script src="/js/onboarding.js?v=1.0.3"></script><script src="/js/main.js?v=1.0.3"></script>
+    <script src="/js/state.js"></script><script src="/js/utils.js"></script><script src="/js/theme.js"></script><script src="/js/routing.js"></script><script src="/js/api.js"></script><script src="/js/settings.js"></script><script src="/js/export.js"></script><script src="/js/worker_setup.js"></script><script src="/js/table_infra.js"></script><script src="/js/table_filters.js"></script><script src="/js/table_render.js"></script><script src="/js/charts_utils.js"></script><script src="/js/charts_pareto.js"></script><script src="/js/charts_pathways_math.js"></script><script src="/js/charts_pathways_render.js"></script><script src="/js/charts_timeline.js"></script><script src="/js/charts_modal.js"></script><script src="/js/modal.js"></script><script src="/js/health.js"></script><script src="/js/onboarding.js"></script><script src="/js/main.js"></script>
 </body>
 </html>

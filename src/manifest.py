@@ -249,6 +249,25 @@ def validate_manifest(data: Dict[str, Any]) -> Tuple[List[str], List[str]]:
     if not eval_protocol or not isinstance(eval_protocol, dict) or not eval_protocol.get("enabled"):
         warnings.append("Eval protocol is disabled — pruning will use train metrics")
 
+    # Validate validation_rules
+    rules = data.get("validation_rules")
+    if rules:
+        if not isinstance(rules, dict):
+            errors.append("validation_rules must be a dictionary")
+        else:
+            enabled = rules.get("enabled")
+            score_min = rules.get("score_min")
+            loss_min = rules.get("loss_min")
+            max_epoch_jump = rules.get("max_epoch_jump")
+            if enabled is not None and not isinstance(enabled, bool):
+                errors.append("validation_rules.enabled must be a boolean")
+            if score_min is not None and not isinstance(score_min, (int, float)):
+                errors.append("validation_rules.score_min must be a numeric value")
+            if loss_min is not None and not isinstance(loss_min, (int, float)):
+                errors.append("validation_rules.loss_min must be a numeric value")
+            if max_epoch_jump is not None and not isinstance(max_epoch_jump, (int, float)):
+                errors.append("validation_rules.max_epoch_jump must be a numeric value")
+
     return errors, warnings
 
 
@@ -302,6 +321,12 @@ def _manifest_to_hpo_config(data: Dict[str, Any]) -> Dict[str, Any]:
     score_eval_attr = eval_proto.get("score_eval_attr", "score_eval_fixed")
     loss_eval_attr = eval_proto.get("loss_eval_attr", "loss_eval_fixed")
 
+    rules = data.get("validation_rules", {})
+    rules_enabled = bool(rules.get("enabled", False))
+    score_min = rules.get("score_min")
+    loss_min = rules.get("loss_min")
+    max_epoch_jump = rules.get("max_epoch_jump")
+
     hpo_config = {
         "config_version": 2,
         "metric_loss_label": loss_label,
@@ -320,6 +345,12 @@ def _manifest_to_hpo_config(data: Dict[str, Any]) -> Dict[str, Any]:
             "prune_compare_same_resolution_only": True,
             "prune_exclude_low_res_from_baseline": True,
             "pareto_deploy_resolution_only": True,
+        },
+        "validation_rules": {
+            "enabled": rules_enabled,
+            "score_min": float(score_min) if score_min is not None else None,
+            "loss_min": float(loss_min) if loss_min is not None else None,
+            "max_epoch_jump": float(max_epoch_jump) if max_epoch_jump is not None else None,
         },
         "param_labels": {},
         "manifest_metrics": metrics

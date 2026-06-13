@@ -266,15 +266,35 @@ function renderStudyDetails(data) {
     }
 
     const tbody = document.getElementById("trials-table-body");
+    const trialsCard = document.getElementById("dashboard-trial-monitor-card");
+    const startedCard = document.getElementById("dashboard-getting-started-card");
+    const analysisEmpty = document.getElementById("analysis-empty-state");
+    const analysisLayout = document.getElementById("analysis-main-layout");
+
     if (!data.trials || data.trials.length === 0) {
-        renderAnalysisTrialsTable(data.trials || []);
-        const totalCols = 4 + (ev.enabled ? 1 : 0) + paramKeys.length + 2;
-        tbody.innerHTML = `<tr><td colspan="${totalCols}" style="text-align: center; color: var(--text-muted); padding: 40px;">No trials registered yet. Run training worker.</td></tr>`;
+        if (trialsCard) trialsCard.style.display = "none";
+        if (startedCard) startedCard.style.display = "block";
+        if (analysisEmpty) {
+            analysisEmpty.style.display = "flex";
+            analysisEmpty.style.alignItems = "center";
+            analysisEmpty.style.justifyContent = "center";
+        }
+        if (analysisLayout) analysisLayout.style.display = "none";
+
+        window.showEmptyState("pareto-chart", "Run at least 2 completed trials to see Pareto front");
+        window.showEmptyState("fanova-container", "Need at least 2 completed trials for importance analysis");
+
+        renderAnalysisTrialsTable([]);
         window.HPOState.render.lastTrialsSnapshot = "empty";
         window.HPOState.render.lastFanovaPayload = "empty";
         window.HPOState.render.lastFanovaRenderKey = null;
         return;
     }
+
+    if (trialsCard) trialsCard.style.display = "block";
+    if (startedCard) startedCard.style.display = "none";
+    if (analysisEmpty) analysisEmpty.style.display = "none";
+    if (analysisLayout) analysisLayout.style.display = "flex";
 
     const paretoSet = new Set(data.pareto_trials);
     const displayTrials = filterTrialsForDisplay(data.trials, paretoSet);

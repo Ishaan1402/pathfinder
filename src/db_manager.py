@@ -63,6 +63,13 @@ def init_db():
 # Additive, idempotent column migrations for tables that predate a new field.
 # Keeps an already-populated SQLite DB from 500ing when the ORM adds a nullable column.
 _ADDITIVE_COLUMNS = {
+    "trial_results": {
+        "worker_id": "VARCHAR(100)",
+        "git_commit": "VARCHAR(40)",
+        "dataset_version": "VARCHAR(200)",
+        "health_tier": "VARCHAR(50)",
+        "health_reason": "TEXT",
+    },
     "study_reviews": {
         "estimated_score_improvement": "FLOAT",
         "cited_best_trial": "INTEGER",
