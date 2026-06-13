@@ -1,10 +1,13 @@
 # Pathfinder
 
-[Python 3.10+](https://www.python.org/downloads/)
-[FastAPI](https://fastapi.tiangolo.com/)
-[Optuna](https://optuna.org/)
-[SQLite](https://www.sqlite.org/)
-[MCP](https://modelcontextprotocol.io/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/downloads/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![Optuna](https://img.shields.io/badge/Optuna-Tuning-1E90FF?style=flat-square)](https://optuna.org/)
+[![SQLite](https://img.shields.io/badge/SQLite-003B57?style=flat-square&logo=sqlite&logoColor=white)](https://www.sqlite.org/)
+[![MCP](https://img.shields.io/badge/MCP-Model_Context_Protocol-orange?style=flat-square)](https://modelcontextprotocol.io/)
+[![Build Status](https://github.com/Ishaan1402/pathfinder/actions/workflows/ci.yml/badge.svg)](https://github.com/Ishaan1402/pathfinder/actions)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
+
 
 A decoupled hyperparameter optimization (HPO) framework that separates the deterministic optimizer from episodic AI reviews. Train workers run autonomously without ever blocking on an LLM. Optimizers run fast. Humans (or AI agents in your IDE) review results periodically and decide when to adjust the search space.
 
