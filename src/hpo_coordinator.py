@@ -834,6 +834,15 @@ def compute_health_tier(study, study_name: str) -> tuple[str, Optional[str]]:
             if var_top < 1e-4:
                 return "watch", f"Score convergence: top quartile score variance ({var_top:.6f}) is below 1e-4"
 
+    # 3. Trial-level warnings
+    running_trials = [t for t in trials if t.state == TrialState.RUNNING]
+    latest_completed = completed[-1:] if completed else []
+    for t in (running_trials + latest_completed):
+        t_tier = t.user_attrs.get("health_tier")
+        t_reason = t.user_attrs.get("health_reason")
+        if t_tier == "watch" and t_reason:
+            return "watch", f"Trial #{t.number} warning: {t_reason}"
+
     return "healthy", "No issues detected. Search space is healthy."
 
 

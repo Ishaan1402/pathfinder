@@ -36,6 +36,13 @@ params:
 #   score_eval_attr: score_eval_fixed
 #   loss_eval_attr: loss_eval_fixed
 
+# Optional: validation guardrails — flag suspicious trial metrics as warnings
+# validation_rules:
+#   enabled: true          # set false to disable all metric guardrails
+#   score_min: 0.0         # warn when score (higher-is-better) falls below this
+#   loss_min: 0.0          # warn when loss (lower-is-better) falls below this
+#   max_epoch_jump: 0.5    # warn when score changes by >50% between consecutive epochs
+
 worker:
   entrypoint: python train.py   # how to run your training script
   # env:                        # optional environment variables

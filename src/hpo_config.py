@@ -14,6 +14,12 @@ DEFAULT_HPO_CONFIG: Dict[str, Any] = {
     "metric_score_label": "Score",
     "metric_names": {"score": "score", "loss": "loss"},
     "desktop_notifications_enabled": False,
+    "validation_rules": {
+        "score_min": None,
+        "loss_min": None,
+        "max_epoch_jump": None,
+        "enabled": False,
+    },
     "eval_protocol": {
         "enabled": False,
         "fixed_resolution": None,
@@ -36,6 +42,12 @@ LEGACY_DEFAULT_HPO_CONFIG: Dict[str, Any] = {
     "metric_loss_label": "BCE",
     "metric_score_label": "Dice",
     "desktop_notifications_enabled": False,
+    "validation_rules": {
+        "score_min": 0.0,
+        "loss_min": 0.0,
+        "max_epoch_jump": 0.5,
+        "enabled": True,
+    },
     "eval_protocol": {
         "enabled": False,
         "fixed_resolution": None,
@@ -110,8 +122,9 @@ def load_hpo_config(study_name: Optional[str] = None) -> Dict[str, Any]:
 
     try:
         merged = json.loads(json.dumps(defaults))
-        merged.update({k: v for k, v in data.items() if k not in ("eval_protocol", "param_labels", "legacy_param_aliases", "legacy_capacity_values")})
+        merged.update({k: v for k, v in data.items() if k not in ("eval_protocol", "param_labels", "legacy_param_aliases", "legacy_capacity_values", "validation_rules")})
         merged["eval_protocol"] = {**defaults.get("eval_protocol", {}), **data.get("eval_protocol", {})}
+        merged["validation_rules"] = {**defaults.get("validation_rules", {}), **data.get("validation_rules", {})}
         merged["param_labels"] = {**defaults.get("param_labels", {}), **data.get("param_labels", {})}
         if "legacy_param_aliases" in defaults or "legacy_param_aliases" in data:
             merged["legacy_param_aliases"] = {
