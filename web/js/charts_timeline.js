@@ -7,7 +7,7 @@ function updateAshaTimeline(trials) {
         .sort((a, b) => b.number - a.number);
 
     if (validTrials.length === 0) {
-        container.innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 40px;">No trials registered yet. Run training worker.</div>`;
+        window.showEmptyState("asha-progression-timeline", "No trials registered yet. Run training worker.");
         return;
     }
 

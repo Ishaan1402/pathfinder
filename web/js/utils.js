@@ -149,3 +149,101 @@ window.buildHealthBlocks = buildHealthBlocks;
 window.formatReviewTimestamp = formatReviewTimestamp;
 window.getLatestCoordinatorAction = getLatestCoordinatorAction;
 
+function showEmptyState(containerId, message) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    // Chart.js instance cleanup
+    let chartKey = null;
+    if (containerId === "pareto-chart") chartKey = "pareto";
+    if (chartKey && window.HPOState?.charts?.[chartKey]?.instance) {
+        try {
+            window.HPOState.charts[chartKey].instance.destroy();
+        } catch (e) {
+            console.error("Error destroying chart instance:", e);
+        }
+        window.HPOState.charts[chartKey].instance = null;
+    }
+
+    if (container.tagName.toLowerCase() === 'canvas') {
+        let placeholder = container.parentElement.querySelector('.chart-empty-placeholder');
+        if (!placeholder) {
+            placeholder = document.createElement('div');
+            placeholder.className = 'chart-empty-placeholder';
+            placeholder.style.display = 'flex';
+            placeholder.style.alignItems = 'center';
+            placeholder.style.justifyContent = 'center';
+            placeholder.style.width = '100%';
+            placeholder.style.height = '100%';
+            placeholder.style.minHeight = '220px';
+            placeholder.style.color = 'var(--text-muted)';
+            placeholder.style.fontFamily = 'var(--font-main)';
+            placeholder.style.fontSize = '0.875rem';
+            placeholder.style.textAlign = 'center';
+            placeholder.style.backgroundColor = 'rgba(255, 255, 255, 0.02)';
+            placeholder.style.border = '1px solid var(--border-color, #2d3748)';
+            placeholder.style.padding = '20px';
+            placeholder.style.boxSizing = 'border-box';
+            container.parentElement.appendChild(placeholder);
+        }
+        placeholder.textContent = message;
+        placeholder.style.display = 'flex';
+        container.style.display = 'none';
+    } else {
+        container.innerHTML = '';
+        const emptyDiv = document.createElement('div');
+        emptyDiv.style.display = 'flex';
+        emptyDiv.style.alignItems = 'center';
+        emptyDiv.style.justifyContent = 'center';
+        emptyDiv.style.width = '100%';
+        emptyDiv.style.height = '100%';
+        emptyDiv.style.minHeight = '150px';
+        emptyDiv.style.color = 'var(--text-muted)';
+        emptyDiv.style.fontFamily = 'var(--font-main)';
+        emptyDiv.style.fontSize = '0.875rem';
+        emptyDiv.style.textAlign = 'center';
+        emptyDiv.style.border = '1px solid var(--border-color, #2d3748)';
+        emptyDiv.style.backgroundColor = 'rgba(255, 255, 255, 0.02)';
+        emptyDiv.style.padding = '20px';
+        emptyDiv.style.boxSizing = 'border-box';
+        emptyDiv.textContent = message;
+        container.appendChild(emptyDiv);
+    }
+}
+
+function hideEmptyState(containerId, recreateCanvas = false) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    if (container.tagName.toLowerCase() === 'canvas') {
+        const placeholder = container.parentElement.querySelector('.chart-empty-placeholder');
+        if (placeholder) {
+            placeholder.style.display = 'none';
+        }
+        
+        container.style.display = "block";
+        
+        if (recreateCanvas) {
+            // Destroy the stale Chart.js instance that references the old canvas.
+            // If we don't do this, updateChart() sees instance != null and tries to
+            // call .update() on the detached (removed) canvas — nothing renders.
+            let chartKey = null;
+            if (containerId === "pareto-chart") chartKey = "pareto";
+            if (chartKey && window.HPOState?.charts?.[chartKey]?.instance) {
+                try { window.HPOState.charts[chartKey].instance.destroy(); } catch (e) {}
+                window.HPOState.charts[chartKey].instance = null;
+            }
+            // Recreate canvas to completely reset Chart.js internal context reference
+            const newCanvas = document.createElement("canvas");
+            newCanvas.id = containerId;
+            newCanvas.style.maxHeight = container.style.maxHeight || "100%";
+            newCanvas.style.maxWidth = container.style.maxWidth || "100%";
+            newCanvas.style.display = "block";
+            container.replaceWith(newCanvas);
+        }
+    }
+}
+
+window.showEmptyState = showEmptyState;
+window.hideEmptyState = hideEmptyState;
+

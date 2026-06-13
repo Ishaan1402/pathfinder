@@ -74,9 +74,16 @@ function applyTablePipeline(trials, tableId) {
 
 function cycleTableSort(tableId, colKey) {
     const sort = window.HPOState.tables[tableId].sort;
-    if (sort.col !== colKey) { sort.col = colKey; sort.dir = "asc"; }
-    else if (sort.dir === "asc") { sort.dir = "desc"; }
-    else { sort.col = null; sort.dir = null; }
+    // Loss (bce) defaults to ascending (lower is better).
+    // Others (number/Trial, score/dice/eval, parameters) default to descending (higher/latest is better).
+    const defaultDir = (colKey === "bce") ? "asc" : "desc";
+    
+    if (sort.col !== colKey) {
+        sort.col = colKey;
+        sort.dir = defaultDir;
+    } else {
+        sort.dir = sort.dir === "asc" ? "desc" : "asc";
+    }
     refreshTableForId(tableId);
 }
 

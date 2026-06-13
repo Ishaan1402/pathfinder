@@ -1,4 +1,15 @@
 function updateChart(trials, paretoSet, directions) {
+    if (!trials || trials.length === 0) {
+        window.showEmptyState("pareto-chart", "No trial data yet. Start a worker.");
+        return;
+    }
+    const completedTrials = trials.filter(t => t.state === "COMPLETE");
+    if (completedTrials.length < 2) {
+        window.showEmptyState("pareto-chart", "Run at least 2 completed trials to see Pareto front");
+        return;
+    }
+    window.hideEmptyState("pareto-chart", true);
+
     const ctx = document.getElementById("pareto-chart")?.getContext("2d");
     if (!ctx) return;
     

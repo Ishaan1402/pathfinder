@@ -12,6 +12,32 @@ function syncTrialColumnWidth(table, trials) {
     window.HPOState.ui.columnWidths[colLabel] = width;
 }
 
+function autoFitColumnWidth(table, colIndex) {
+    if (!table) return;
+    const ths = table.querySelectorAll("thead th");
+    if (colIndex >= ths.length) return;
+    const th = ths[colIndex];
+    const colLabel = th.dataset.colLabel || th.textContent.trim().replace(/[\s\r\n\t]+/g, " ");
+
+    const origTableLayout = table.style.tableLayout;
+    table.style.tableLayout = "auto";
+    th.style.width = "";
+
+    // Force layout / get natural width of the column
+    let naturalWidth = th.offsetWidth;
+
+    // Restore table layout
+    table.style.tableLayout = origTableLayout;
+
+    // Apply safety padding for sort caret, filter button, and spacing
+    const paddedWidth = Math.max(65, Math.min(450, naturalWidth + 28));
+
+    th.style.width = `${paddedWidth}px`;
+    window.HPOState.ui.columnWidths[colLabel] = paddedWidth;
+    window.HPOState.ui.columnWidthsUserResized = window.HPOState.ui.columnWidthsUserResized || new Set();
+    window.HPOState.ui.columnWidthsUserResized.add(colLabel);
+}
+
 function makeTableResizable(table, force = false) {
     if (!table) return;
     if (table.offsetWidth === 0) return;
@@ -71,6 +97,13 @@ function makeTableResizable(table, force = false) {
             document.addEventListener("mousemove", onMouseMove);
             document.addEventListener("mouseup", onMouseUp);
         });
+
+        // Autofit on double-click
+        handle.addEventListener("dblclick", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            autoFitColumnWidth(table, i);
+        });
     }
 }
 
@@ -105,9 +138,19 @@ function buildSortableTh(label, colKey, tableId) {
     }
     const hasFilter = !!window.HPOState.tables[tableId].filters[colKey];
     const colClass = colKey === "number" ? " col-trial" : "";
+    
+    // Hide filter button on the trial number column
+    const filterBtn = colKey === "number" ? "" : `
+        <button type="button" class="th-filter-btn${hasFilter ? " active" : ""}" data-filter-col="${colKey}" title="Filter">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width: 10px; height: 10px; display: block; pointer-events: none;">
+                <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
+            </svg>
+        </button>
+    `;
+    
     return `<th class="th-sortable${colClass}" data-col-key="${colKey}" data-col-label="${label.replace(/"/g, "&quot;")}">
         <span class="th-label-wrap">${label}<span class="sort-caret${caret ? " active" : ""}">${caret}</span></span>
-        <button type="button" class="th-filter-btn${hasFilter ? " active" : ""}" data-filter-col="${colKey}" title="Filter">▾</button>
+        ${filterBtn}
     </th>`;
 }
 
@@ -115,7 +158,7 @@ function bindTableHeaderInteractions(table, tableId, baseTrials) {
     if (!table) return;
     table.querySelectorAll(".th-sortable").forEach((th) => {
         th.addEventListener("click", (e) => {
-            if (e.target.closest(".th-filter-btn")) return;
+            if (e.target.closest(".th-filter-btn") || e.target.closest(".resize-handle")) return;
             cycleTableSort(tableId, th.dataset.colKey);
         });
     });

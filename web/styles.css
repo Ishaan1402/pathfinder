@@ -542,7 +542,7 @@
         }
 
         .accent-panel.open {
-            max-height: 130px;
+            max-height: 180px;
             opacity: 1;
             margin: 8px 0 4px;
         }
@@ -672,6 +672,7 @@
         /* Main Content Panel */
         .main-content {
             flex: 1;
+            min-height: 0;
             display: flex;
             flex-direction: column;
             overflow: hidden;
@@ -684,6 +685,7 @@
             justify-content: space-between;
             align-items: center;
             margin-bottom: 10px;
+            flex-shrink: 0;
         }
 
         .meta-info {
@@ -716,7 +718,6 @@
             display: flex;
             flex-direction: column;
             min-height: 0;
-            height: 100%;
             overflow: hidden;
         }
 
@@ -725,6 +726,7 @@
             display: grid;
             grid-template-columns: minmax(0, 1fr) 380px;
             gap: 1px;
+            height: calc(100vh - 50px);
             min-height: 0;
             background-color: var(--border-color);
             border: none;
@@ -732,6 +734,7 @@
 
         #dashboard-view > .dashboard-main,
         #dashboard-view > .dashboard-sidebar {
+            height: 100%;
             min-height: 0;
             overflow: hidden;
         }
@@ -743,9 +746,11 @@
             gap: 1px;
             background-color: var(--border-color);
             overflow: hidden;
+            height: 100%;
         }
 
         .dashboard-main > .card {
+            height: 100%;
             min-height: 0;
         }
 
@@ -753,9 +758,9 @@
             display: flex;
             flex-direction: column;
             gap: 0;
+            flex: 1;
             min-height: 0;
             overflow: hidden;
-            height: 100%;
         }
 
         .analysis-scroll {
@@ -894,6 +899,7 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
+            flex-shrink: 0;
         }
 
         .card-content {
@@ -1029,16 +1035,16 @@
             min-height: 0;
             padding: 0;
             flex: 1;
+            height: calc(100% - 40px);
         }
 
         .card-content--table .table-scroll-wrapper {
             flex: 1;
             min-height: 0;
-            max-height: none;
+            height: 100%;
             overflow: auto;
         }
 
-        #dashboard-view .card-content--table .table-scroll-wrapper,
         #analysis-table-card .table-scroll-wrapper {
             max-height: none;
         }
@@ -1079,9 +1085,11 @@
             border: none;
             color: var(--text-muted);
             cursor: pointer;
-            font-size: 0.65rem;
-            padding: 0 2px;
-            line-height: 1;
+            padding: 0 4px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            vertical-align: middle;
         }
 
         .th-filter-btn.active {
@@ -1960,8 +1968,7 @@
             left: 0;
             width: 100%;
             height: 100%;
-            background-color: rgba(0, 0, 0, 0.7);
-            backdrop-filter: blur(8px);
+            background-color: rgba(0, 0, 0, 0.78);
             display: none;
             align-items: center;
             justify-content: center;
@@ -1986,7 +1993,8 @@
             box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
             display: flex;
             flex-direction: column;
-            transform: scale(0.95);
+            transform: scale(0.95) translateZ(0);
+            will-change: transform;
             transition: transform 0.3s cubic-bezier(0.25, 1, 0.5, 1);
         }
 
@@ -2110,7 +2118,7 @@
         }
 
         #export-panel.open {
-            max-height: 110px;
+            max-height: 200px;
             opacity: 1;
             margin: 8px 0 4px;
         }

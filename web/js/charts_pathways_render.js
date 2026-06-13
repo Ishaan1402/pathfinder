@@ -1,4 +1,10 @@
 function updateParallelCoordinates(trials, paretoSet) {
+    if (!trials || trials.length === 0) {
+        window.showEmptyState("parallel-coordinates-chart", "No trial data yet. Start a worker.");
+        return;
+    }
+    window.hideEmptyState("parallel-coordinates-chart", false);
+
     const canvas = document.getElementById("parallel-coordinates-chart");
     if (!canvas) return;
 
