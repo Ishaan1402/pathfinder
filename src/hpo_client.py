@@ -80,6 +80,84 @@ class TrialSession:
         self.worker_id = str(uuid.uuid4())
         self._heartbeat_thread = None
         self._heartbeat_active = False
+        self.detected_env = self.detect_environment()
+
+    def detect_environment(self) -> Dict[str, Any]:
+        """Auto-detect git commit, python version, hostname.
+        Call once at session start, pass results to complete()."""
+        import sys
+        import socket
+        import platform
+        import subprocess
+
+        env = {
+            "python_version": sys.version.split()[0],
+            "hostname": socket.gethostname(),
+            "platform": platform.platform(),
+        }
+
+        # Git commit
+        try:
+            result = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                capture_output=True,
+                text=True
+            )
+            if result.returncode == 0:
+                env["git_commit"] = result.stdout.strip()
+        except Exception:
+            pass
+
+        # CUDA version (if torch available)
+        try:
+            import torch
+            if torch.cuda.is_available():
+                env["cuda_version"] = torch.version.cuda
+        except ImportError:
+            pass
+        except Exception:
+            pass
+
+        # pip freeze
+        packages = []
+        try:
+            import importlib.metadata
+            packages = [f"{dist.name}=={dist.version}" for dist in importlib.metadata.distributions() if dist.name]
+        except Exception:
+            try:
+                # Fallback to subprocess pip freeze if importlib.metadata fails
+                result = subprocess.run(
+                    [sys.executable, "-m", "pip", "freeze"],
+                    capture_output=True,
+                    text=True
+                )
+                if result.returncode == 0:
+                    packages = [line.strip() for line in result.stdout.strip().splitlines() if line.strip()]
+            except Exception:
+                pass
+
+        if packages:
+            packages = sorted(packages)
+            if os.getenv("HPO_CAPTURE_FULL_ENV") != "1":
+                whitelist = {
+                    "torch", "torchvision", "transformers", "accelerate", "numpy", "pandas",
+                    "scipy", "scikit-learn", "optuna", "pathfinder", "pydantic", "fastapi",
+                    "uvicorn", "sqlalchemy"
+                }
+                normalized_whitelist = {name.lower().replace("_", "-") for name in whitelist}
+                
+                filtered_packages = []
+                for p in packages:
+                    parts = p.split("==")
+                    if parts:
+                        pkg_name = parts[0].strip()
+                        if pkg_name.lower().replace("_", "-") in normalized_whitelist:
+                            filtered_packages.append(p)
+                packages = filtered_packages
+                
+            env["pip_freeze"] = "\n".join(packages)
+
+        return env
 
     # --- low-level HTTP ---
     def _get_headers(self) -> Dict[str, str]:
@@ -92,6 +170,16 @@ class TrialSession:
         if secret_token:
             headers["X-HPO-Token"] = secret_token
         return headers
+
+    def _is_retryable(self, e: Exception) -> bool:
+        import requests
+        if isinstance(e, requests.HTTPError) and e.response is not None:
+            status = e.response.status_code
+            return status in (408, 429) or status >= 500
+        # Network-level exceptions (timeouts, connection refused, etc.) are always retryable
+        if isinstance(e, requests.RequestException):
+            return True
+        return False
 
     def _post(self, path: str, payload: Dict[str, Any], max_attempts: int = 5) -> Dict[str, Any]:
         import time
@@ -110,7 +198,7 @@ class TrialSession:
                 return resp.json()
             except requests.RequestException as e:
                 attempt += 1
-                if attempt >= max_attempts:
+                if attempt >= max_attempts or not self._is_retryable(e):
                     raise e
                 print(f"Request POST {path} failed: {e}. Retrying in {backoff}s (attempt {attempt}/{max_attempts})...")
                 time.sleep(backoff)
@@ -132,7 +220,7 @@ class TrialSession:
                 return resp.json()
             except requests.RequestException as e:
                 attempt += 1
-                if attempt >= max_attempts:
+                if attempt >= max_attempts or not self._is_retryable(e):
                     raise e
                 print(f"Request GET {path} failed: {e}. Retrying in {backoff}s (attempt {attempt}/{max_attempts})...")
                 time.sleep(backoff)
@@ -269,6 +357,13 @@ class TrialSession:
         gpu_model: Optional[str] = None,
         max_vram_gb: Optional[float] = None,
         oom_triggered: Optional[bool] = None,
+        dataset_version: Optional[str] = None,
+        git_commit: Optional[str] = None,
+        python_version: Optional[str] = None,
+        cuda_version: Optional[str] = None,
+        pip_freeze: Optional[str] = None,
+        hostname: Optional[str] = None,
+        platform: Optional[str] = None,
     ) -> Dict[str, Any]:
         """POST /api/complete_trial — finalize the trial (COMPLETE, PRUNED, or FAIL)."""
         # Stop background heartbeat
@@ -302,6 +397,22 @@ class TrialSession:
             payload["max_vram_gb"] = max_vram_gb
         if oom_triggered is not None:
             payload["oom_triggered"] = oom_triggered
+
+        # Auto-detect defaults
+        env = dict(self.detected_env) if hasattr(self, "detected_env") else {}
+        # Override with explicit values if passed
+        if git_commit is not None: env["git_commit"] = git_commit
+        if python_version is not None: env["python_version"] = python_version
+        if cuda_version is not None: env["cuda_version"] = cuda_version
+        if pip_freeze is not None: env["pip_freeze"] = pip_freeze
+        if dataset_version is not None: env["dataset_version"] = dataset_version
+        if hostname is not None: env["hostname"] = hostname
+        if platform is not None: env["platform"] = platform
+        
+        # Merge into payload
+        for k, v in env.items():
+            if v is not None:
+                payload[k] = v
 
         data = self._post("/api/complete_trial", payload)
 

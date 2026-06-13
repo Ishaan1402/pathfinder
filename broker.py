@@ -64,6 +64,25 @@ app = FastAPI(title="Pathfinder HTTP Broker")
 _js_dir = os.path.join(os.path.dirname(__file__), "web", "js")
 app.mount("/js", StaticFiles(directory=_js_dir), name="js")
 
+
+@app.middleware("http")
+async def no_cache_static_assets(request: Request, call_next):
+    """Prevent proxies (Cloudflare, nginx, etc.) from caching the dashboard HTML, CSS, and JS.
+    API routes are unaffected — only static asset paths get the no-store header.
+    """
+    response = await call_next(request)
+    path = request.url.path
+    if path == "/" or path == "/styles.css" or path.startswith("/js/"):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
+
+
+@app.on_event("shutdown")
+def shutdown_event():
+    print("\nPerforming graceful shutdown...")
+
 # --- CORS ---
 def _allowed_origins() -> List[str]:
     """Explicit CORS allowlist: localhost defaults plus comma-separated HPO_ALLOWED_ORIGINS."""
@@ -163,15 +182,22 @@ def get_gui():
             html = html.replace("</head>", f"{inject_script}</head>", 1)
         else:
             html = inject_script + html
-        return html
-    return "<h3>index.html not found</h3>"
+        return HTMLResponse(
+            content=html,
+            headers={"Cache-Control": "no-store, no-cache, must-revalidate"},
+        )
+    return HTMLResponse(content="<h3>index.html not found</h3>", status_code=404)
 
 
 @app.get("/styles.css")
 def get_styles():
     styles_path = os.path.join(os.path.dirname(__file__), "web", "styles.css")
     if os.path.exists(styles_path):
-        return FileResponse(styles_path, media_type="text/css")
+        return FileResponse(
+            styles_path,
+            media_type="text/css",
+            headers={"Cache-Control": "no-store, no-cache, must-revalidate"},
+        )
     raise HTTPException(status_code=404, detail="styles.css not found")
 
 
@@ -507,9 +533,27 @@ def api_study_details(study_name: str):
                     "failure_tag": m.failure_tag,
                     "gpu_model": m.gpu_model,
                     "max_vram_gb": m.max_vram_gb,
+                    "worker_id": m.worker_id,
+                    "git_commit": m.git_commit,
+                    "dataset_version": m.dataset_version,
+                    "health_tier": m.health_tier,
+                    "health_reason": m.health_reason,
                 }
                 for m in metric_rows
             }
+            # Load all worker environments for this study
+            from src.schema import SystemConfiguration
+            env_rows = session.query(SystemConfiguration).filter(
+                SystemConfiguration.study_name == study_name,
+                SystemConfiguration.config_key.like("worker_env:%")
+            ).all()
+            worker_envs = {}
+            for r in env_rows:
+                try:
+                    w_id = r.config_key.replace("worker_env:", "")
+                    worker_envs[w_id] = json.loads(r.config_value)
+                except Exception:
+                    pass
 
         hpo_config = load_hpo_config(study_name)
         space = load_search_space(study_name)
@@ -534,7 +578,9 @@ def api_study_details(study_name: str):
                 norm_params[train_param] = train_res
 
             # OOM / failure fields from TrialResult
-            tr = trial_result_map.get(t._trial_id)
+            tr = trial_result_map.get(t._trial_id) or {}
+            w_id = tr.get("worker_id")
+            w_env = worker_envs.get(w_id, {}) if w_id else {}
             trials_list.append({
                 "number": t.number,
                 "trial_id": t._trial_id,
@@ -557,10 +603,20 @@ def api_study_details(study_name: str):
                 "speed_ips": speed_ips,
                 "history": history,
                 "intermediate_values": t.intermediate_values,
-                "oom_triggered": (tr.get("oom_triggered") if tr else None) or t.user_attrs.get("oom_triggered", False),
-                "failure_tag": tr.get("failure_tag") if tr else None,
-                "gpu_model": tr.get("gpu_model") if tr else None,
-                "max_vram_gb": tr.get("max_vram_gb") if tr else None,
+                "oom_triggered": tr.get("oom_triggered") or t.user_attrs.get("oom_triggered", False),
+                "failure_tag": tr.get("failure_tag"),
+                "gpu_model": tr.get("gpu_model"),
+                "max_vram_gb": tr.get("max_vram_gb"),
+                "worker_id": w_id,
+                "git_commit": tr.get("git_commit") or t.user_attrs.get("git_commit", None),
+                "dataset_version": tr.get("dataset_version") or t.user_attrs.get("dataset_version", None),
+                "health_tier": tr.get("health_tier") or t.user_attrs.get("health_tier", None),
+                "health_reason": tr.get("health_reason") or t.user_attrs.get("health_reason", None),
+                "hostname": w_env.get("hostname"),
+                "platform": w_env.get("platform"),
+                "python_version": w_env.get("python_version"),
+                "cuda_version": w_env.get("cuda_version"),
+                "pip_freeze": w_env.get("pip_freeze"),
             })
             
         running_count = sum(1 for t in study.trials if t.state == TrialState.RUNNING)
@@ -596,7 +652,7 @@ def api_fanova(study_name: str):
         study = get_or_create_study(study_name)
         complete_trials = [t for t in study.trials if t.state == TrialState.COMPLETE]
         if len(complete_trials) < 2:
-            return {"success": False, "message": "Need at least 2 completed trials to compute fANOVA."}
+            return {"success": False, "message": "Need at least 2 completed trials for importance analysis"}
             
         importances = {}
         if len(study.directions) > 1:
@@ -927,7 +983,44 @@ if __name__ == "__main__":
     import uvicorn
     import threading
     import os
+    import sys
     
+    # Run startup backup
+    def run_startup_backup():
+        try:
+            from src.db_manager import DATABASE_URL
+            if not DATABASE_URL.startswith("sqlite"):
+                print("Skipping automatic startup backup: DATABASE_URL is not SQLite.")
+                return
+            import datetime
+            import sqlite3
+            import glob
+            db_path = DATABASE_URL.replace("sqlite:///", "") if DATABASE_URL.startswith("sqlite:///") else "hpo_studies.db"
+            if not os.path.exists(db_path):
+                return
+            os.makedirs("backups", exist_ok=True)
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            dest_path = f"backups/hpo_backup_{timestamp}.db"
+            src_conn = sqlite3.connect(db_path)
+            dst_conn = sqlite3.connect(dest_path)
+            with dst_conn:
+                src_conn.backup(dst_conn)
+            dst_conn.close()
+            src_conn.close()
+            print(f"✓ Automatic startup backup created: {dest_path}")
+            
+            backup_files = sorted(glob.glob("backups/hpo_backup_*.db"))
+            if len(backup_files) > 10:
+                to_delete = backup_files[:-10]
+                for f in to_delete:
+                    try:
+                        os.remove(f)
+                        print(f"Deleted old backup: {f}")
+                    except Exception as remove_err:
+                        print(f"Failed to delete old backup {f}: {remove_err}")
+        except Exception as e:
+            print(f"Failed to run automatic startup backup: {e}")
+
     parser = argparse.ArgumentParser(description="Pathfinder HTTP Broker")
     parser.add_argument("--host", default="127.0.0.1", help="Binding host (default loopback-only)")
     parser.add_argument("--port", type=int, default=8000, help="Binding port")
@@ -935,8 +1028,13 @@ if __name__ == "__main__":
     parser.add_argument("--tunnel", action="store_true", help="Start background ngrok tunnel")
     parser.add_argument("--tunnel-provider", default=None, choices=["ngrok", "cloudflare", "none"], help="Tunneling provider (ngrok, cloudflare, or none)")
     parser.add_argument("--tunnel-url", default=None, help="Pre-configured static remote tunnel/broker URL (e.g. Cloudflare custom domain)")
+    parser.add_argument("--backup-on-start", action="store_true", help="Perform synchronous database backup at startup")
     
     args = parser.parse_args()
+
+    # Run startup backup if requested
+    if args.backup_on_start or os.getenv("HPO_BACKUP_ON_START") == "1":
+        run_startup_backup()
 
     # Resolve tunnel provider
     tunnel_provider = args.tunnel_provider
@@ -954,22 +1052,33 @@ if __name__ == "__main__":
     if static_tunnel_url and tunnel_provider == "none":
         tunnel_provider = "cloudflare"
 
-    # Network safety: refuse to expose the broker beyond loopback (or via a tunnel) without a
-    # token. This is the single most important guard for the tunneled threat model.
+    # Network safety: auto-generate token if binding beyond loopback or using tunnel
     tunnel_requested = (tunnel_provider != "none")
     is_loopback = args.host in ("127.0.0.1", "localhost", "::1")
     
-    if (not is_loopback or tunnel_requested) and not os.environ.get("HPO_SECRET_TOKEN"):
-        raise SystemExit(
-            "Refusing to start: exposing the broker beyond loopback (non-loopback --host for Tailscale or "
-            "tunneling for Cloudflare/ngrok) without authentication is unsafe.\n"
-            "Please set the HPO_SECRET_TOKEN environment variable to secure the broker, "
-            "or bind to local loopback only (use --host 127.0.0.1) for local-only use."
-        )
+    secret_token = os.environ.get("HPO_SECRET_TOKEN")
+    if (not is_loopback or tunnel_requested) and not secret_token:
+        import secrets
+        secret_token = secrets.token_urlsafe(32)
+        os.environ["HPO_SECRET_TOKEN"] = secret_token
+        print("\n" + "!"*80)
+        print("⚠️  No HPO_SECRET_TOKEN environment variable set.")
+        print("   Auto-generating a secure random token for this session.")
+        print("!"*80 + "\n")
     
-    if not is_loopback and os.environ.get("HPO_SECRET_TOKEN"):
-        print(f"🔒 Secure Private VPN/Tailscale Network Mode enabled. Binding to {args.host}:{args.port}")
-        print("   HPO_SECRET_TOKEN is active. Workers must supply a valid token to connect.")
+    if secret_token:
+        # Determine accessible URLs for logging in
+        host_display = "localhost" if args.host in ("0.0.0.0", "127.0.0.1", "localhost", "::1", "::") else args.host
+        port_suffix = f":{args.port}" if args.port != 80 else ""
+        local_login_url = f"http://{host_display}{port_suffix}/?token={secret_token}"
+        
+        print("\n" + "="*80)
+        print("🔑 PATHFINDER DASHBOARD SECURITY ACTIVE")
+        print(f"   Access Token: {secret_token}")
+        print(f"   Auto-login Link: {local_login_url}")
+        if not is_loopback:
+            print(f"🔒 Secure Private VPN/Tailscale Network Mode enabled. Binding to {args.host}:{args.port}")
+        print("="*80 + "\n")
 
     # 1. Start daemon thread if requested (notify-only health monitor; no auto-LLM).
     daemon_enabled = args.daemon or os.getenv("HPO_DAEMON_ENABLED") == "1"
@@ -1008,6 +1117,8 @@ if __name__ == "__main__":
                 session.commit()
             print(f"\n==============================================")
             print(f"🔥 Remote broker URL established (Static/Cloudflare): {static_tunnel_url}")
+            if secret_token:
+                print(f"   Auto-login Link: {static_tunnel_url}/?token={secret_token}")
             print(f"==============================================\n")
         except Exception as db_err:
             print(f"Error saving remote broker URL: {db_err}")
@@ -1038,6 +1149,8 @@ if __name__ == "__main__":
                                     public_url = t.get("public_url")
                                     print(f"\n==============================================")
                                     print(f"🔥 Ngrok tunnel established: {public_url}")
+                                    if secret_token:
+                                        print(f"   Auto-login Link: {public_url}/?token={secret_token}")
                                     print(f"==============================================\n")
                                     
                                     # Persist in SQLite under SystemConfiguration

@@ -89,6 +89,48 @@ function openTrialDetails(trialNum) {
         }
     }
 
+    // Metric validation health warning
+    const warnSection = document.getElementById("modal-health-warning-section");
+    const warnDetail = document.getElementById("modal-health-warning-detail");
+    if (warnSection && warnDetail) {
+        if (trial.health_reason) {
+            warnSection.style.display = "block";
+            warnDetail.textContent = trial.health_reason;
+        } else {
+            warnSection.style.display = "none";
+        }
+    }
+
+    // Environment info section
+    const envSection = document.getElementById("modal-env-section");
+    const envFields = ["python_version", "platform", "hostname", "git_commit", "cuda_version", "dataset_version", "pip_freeze"];
+    const hasEnvData = envFields.some(f => trial[f] !== undefined && trial[f] !== null && trial[f] !== "");
+    if (envSection) {
+        if (hasEnvData) {
+            envSection.style.display = "block";
+            document.getElementById("modal-env-hostname").textContent = trial.hostname || "—";
+            document.getElementById("modal-env-platform").textContent = trial.platform || "—";
+            document.getElementById("modal-env-python").textContent = trial.python_version || "—";
+            document.getElementById("modal-env-cuda").textContent = trial.cuda_version || "—";
+            document.getElementById("modal-env-git").textContent = trial.git_commit || "—";
+            document.getElementById("modal-env-dataset").textContent = trial.dataset_version || "—";
+            
+            const pipTextarea = document.getElementById("modal-env-pip");
+            if (pipTextarea) {
+                pipTextarea.value = trial.pip_freeze || "No pip freeze recorded.";
+                pipTextarea.parentElement.style.display = trial.pip_freeze ? "flex" : "none";
+            }
+            
+            // Start collapsed
+            const content = document.getElementById("modal-env-content");
+            const chevron = document.getElementById("modal-env-chevron");
+            if (content) content.style.display = "none";
+            if (chevron) chevron.style.transform = "rotate(180deg)";
+        } else {
+            envSection.style.display = "none";
+        }
+    }
+
     const reasoningEl = document.getElementById("modal-reasoning");
     const rationaleTitle = document.getElementById("modal-rationale-title");
     const logic = window.HPOState.data.thoughtLogs.find(l => l.trial_id === trial.trial_id);
@@ -122,6 +164,22 @@ function closeModalDirect() {
     }
 }
 
+function toggleModalEnvCard() {
+    const content = document.getElementById("modal-env-content");
+    const chevron = document.getElementById("modal-env-chevron");
+    if (!content || !chevron) return;
+    
+    const isHidden = content.style.display === "none";
+    if (isHidden) {
+        content.style.display = "flex";
+        chevron.style.transform = "rotate(0deg)";
+    } else {
+        content.style.display = "none";
+        chevron.style.transform = "rotate(180deg)";
+    }
+}
+
 window.openTrialDetails = openTrialDetails;
 window.closeModal = closeModal;
 window.closeModalDirect = closeModalDirect;
+window.toggleModalEnvCard = toggleModalEnvCard;

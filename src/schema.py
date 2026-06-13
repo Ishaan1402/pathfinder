@@ -21,6 +21,11 @@ class TrialResult(Base):
     max_vram_gb: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     oom_triggered: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
     failure_tag: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # e.g. "NAN_LOSS", "OOM", etc.
+    worker_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    git_commit: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    dataset_version: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    health_tier: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    health_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime, default=datetime.datetime.utcnow
     )
@@ -50,6 +55,11 @@ class TrialResult(Base):
             "oom_triggered": self.oom_triggered,
             "failure_tag": self.failure_tag,
             "created_at": self.created_at.isoformat() if self.created_at else None,
+            "worker_id": self.worker_id,
+            "git_commit": self.git_commit,
+            "dataset_version": self.dataset_version,
+            "health_tier": self.health_tier,
+            "health_reason": self.health_reason,
         }
 
 class TrialMetadata(Base):

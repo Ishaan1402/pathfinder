@@ -45,6 +45,67 @@ class CompleteTrialRequest(BaseModel):
     gpu_model: Optional[str] = None
     max_vram_gb: Optional[float] = None
     oom_triggered: Optional[bool] = None
+    git_commit: Optional[str] = None
+    python_version: Optional[str] = None
+    cuda_version: Optional[str] = None
+    pip_freeze: Optional[str] = None
+    dataset_version: Optional[str] = None
+    hostname: Optional[str] = None
+    platform: Optional[str] = None
+
+
+def check_trial_health(study, score: Optional[float], loss: Optional[float], history: list) -> tuple[str, str]:
+    """Checks for metric warnings and returns (health_tier, health_reason).
+    
+    Always returns a string pair; never None. When validation rules are disabled
+    this returns ("healthy", "") so callers never need to guard against None values.
+    """
+    from src.hpo_config import load_hpo_config
+    config = load_hpo_config(study.study_name)
+    rules = config.get("validation_rules", {})
+    if not rules.get("enabled", False):
+        return "healthy", ""
+
+    reasons = []
+    
+    # Check 1: Score < score_min on a maximize objective
+    from optuna.study import StudyDirection
+    from src.metrics import score_objective_index, loss_objective_index
+    
+    score_idx = score_objective_index(study)
+    score_min = rules.get("score_min")
+    if score_idx is not None and score is not None and score_min is not None:
+        if score < score_min:
+            reasons.append(f"Score < {score_min} ({score:.4f}) on a maximize objective")
+            
+    # Check 2: Loss < loss_min on a minimize objective
+    loss_idx = loss_objective_index(study)
+    loss_min = rules.get("loss_min")
+    if loss_idx is not None and loss is not None and loss_min is not None:
+        if loss < loss_min:
+            reasons.append(f"Loss < {loss_min} ({loss:.4f}) on a minimize objective")
+            
+    # Check 3: Score change > max_epoch_jump between consecutive epochs (Warmup Gate: epoch > 5)
+    max_jump = rules.get("max_epoch_jump")
+    if max_jump is not None and history and len(history) >= 2:
+        sorted_hist = sorted(history, key=lambda h: h.get("epoch", 0))
+        for i in range(1, len(sorted_hist)):
+            epoch = sorted_hist[i].get("epoch", 0)
+            if epoch <= 5:
+                continue
+            prev_s = sorted_hist[i-1].get("score")
+            curr_s = sorted_hist[i].get("score")
+            if prev_s is not None and curr_s is not None and prev_s != 0.0:
+                change = abs(curr_s - prev_s) / abs(prev_s)
+                if change > max_jump:
+                    reasons.append(
+                        f"Score change > {max_jump*100:.0f}% ({change*100:.1f}%) between epoch {sorted_hist[i-1].get('epoch')} and {sorted_hist[i].get('epoch')}"
+                    )
+                    break
+                    
+    if reasons:
+        return "watch", "; ".join(reasons)
+    return "healthy", ""
 
 
 def handle_api_report_epoch(req: ReportEpochRequest):
@@ -59,7 +120,7 @@ def handle_api_report_epoch(req: ReportEpochRequest):
                 break
 
         if not trial_obj:
-            raise HTTPException(status_code=404, detail=f"Trial ID {req.trial_id} not found.")
+            raise HTTPException(status_code=404, detail=f"Trial ID {req.trial_id} not found. Has the trial been reaped? Try calling suggest() for a new trial.")
 
         # Idempotency check: if already completed, pruned, or failed, return the existing status
         # (BEFORE the lease check, so post-prune/idempotent retries don't 403 once the lease is gone).
@@ -126,6 +187,14 @@ def handle_api_report_epoch(req: ReportEpochRequest):
             epoch_entry["bce_eval_fixed"] = final_loss_fixed
         history.append(epoch_entry)
         study._storage.set_trial_user_attr(trial_obj._trial_id, "history", history)
+
+        # Check trial metrics health
+        health_tier, health_reason = check_trial_health(study, final_score, final_loss, history)
+        try:
+            study._storage.set_trial_user_attr(trial_obj._trial_id, "health_tier", health_tier or "healthy")
+            study._storage.set_trial_user_attr(trial_obj._trial_id, "health_reason", health_reason or "")
+        except Exception as e:
+            print(f"Error saving health user attrs: {e}")
 
         prune_score = final_score
         prune_loss = final_loss
@@ -220,6 +289,31 @@ def handle_api_complete_trial(req: CompleteTrialRequest):
         hpo_config = load_hpo_config(req.study_name)
         ev = hpo_config.get("eval_protocol", {})
 
+        # Metric validation
+        if t_state == TrialState.COMPLETE:
+            # Reject completes that look like training never ran:
+            # - both score and loss are exactly 0.0
+            # - multi-objective study (single-objective zero score is a valid minimum outcome)
+            # - empty epoch history OR no evidence of progress (epoch <= 0 / no weights_path)
+            no_history = not req.history or len(req.history) == 0
+            no_progress = req.epoch <= 0 or not req.weights_path or req.weights_path.strip() == ""
+            if final_score == 0.0 and final_loss == 0.0 and len(study.directions) >= 2 and (no_history or no_progress):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Rejecting complete: trial reported 0.0 for both score and loss. Likely training did not run.",
+                )
+        
+        import math
+        for val_name, val in [("score", final_score), ("loss", final_loss), ("score_eval_fixed", final_score_fixed), ("loss_eval_fixed", final_loss_fixed)]:
+            if val is not None and (math.isnan(val) or math.isinf(val)):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Rejecting complete: {val_name} is NaN or Inf, which is invalid.",
+                )
+
+        # Check trial metrics health
+        health_tier, health_reason = check_trial_health(study, final_score, final_loss, req.history)
+
         # Only set Optuna user attrs if the trial is not finished yet in Optuna.
         # Otherwise, Optuna will raise UpdateFinishedTrialError.
         if trial_obj.state not in (TrialState.COMPLETE, TrialState.PRUNED, TrialState.FAIL):
@@ -232,6 +326,9 @@ def handle_api_complete_trial(req: CompleteTrialRequest):
                     study._storage.set_trial_user_attr(trial_obj._trial_id, "max_vram_gb", req.max_vram_gb)
                 if req.oom_triggered is not None:
                     study._storage.set_trial_user_attr(trial_obj._trial_id, "oom_triggered", req.oom_triggered)
+                
+                study._storage.set_trial_user_attr(trial_obj._trial_id, "health_tier", health_tier or "healthy")
+                study._storage.set_trial_user_attr(trial_obj._trial_id, "health_reason", health_reason or "")
 
                 if final_score_fixed is not None:
                     study._storage.set_trial_user_attr(
@@ -298,10 +395,35 @@ def handle_api_complete_trial(req: CompleteTrialRequest):
                 gpu_model=req.gpu_model,
                 max_vram_gb=req.max_vram_gb,
                 oom_triggered=req.oom_triggered,
-                failure_tag=detected_tag
+                failure_tag=detected_tag,
+                worker_id=req.worker_id,
+                git_commit=req.git_commit,
+                dataset_version=req.dataset_version,
+                health_tier=health_tier or "healthy",
+                health_reason=health_reason or "",
             )
             metric.set_history(req.history)
             session.merge(metric)
+            
+            # Save environment info to SystemConfiguration under worker_env:{worker_id} once to avoid duplicates
+            if req.worker_id:
+                env_dict = {
+                    "python_version": req.python_version,
+                    "cuda_version": req.cuda_version,
+                    "pip_freeze": req.pip_freeze,
+                    "platform": req.platform,
+                    "hostname": req.hostname,
+                }
+                # Clean None values
+                env_dict = {k: v for k, v in env_dict.items() if v is not None}
+                if env_dict:
+                    import json
+                    from src.schema import SystemConfiguration
+                    session.merge(SystemConfiguration(
+                        study_name=req.study_name,
+                        config_key=f"worker_env:{req.worker_id}",
+                        config_value=json.dumps(env_dict)
+                    ))
             
             # Delete trial lease
             session.query(TrialLease).filter_by(trial_id=req.trial_id).delete()
