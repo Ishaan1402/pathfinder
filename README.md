@@ -268,4 +268,4 @@ This Pathfinder instance was initially tuned for [crack-seg](https://github.com/
 
 ## License
 
-[Your license here]
+MIT License - see the [LICENSE](LICENSE) file for details.
