@@ -241,8 +241,9 @@ def build_review_prompt(study_name: str) -> str:
 
 
 def load_active_search_space(study_name: Optional[str] = None) -> Dict[str, Any]:
+    from .settings import settings
     if not study_name:
-        study_name = os.getenv("HPO_STUDY_NAME", "seg_v1")
+        study_name = settings.study_name
     with get_db_session() as session:
         row = session.query(SystemConfiguration).filter_by(
             study_name=study_name, config_key="active_search_space"
@@ -1184,46 +1185,18 @@ def build_review_packet(study_name: str) -> Dict[str, Any]:
         traceback.print_exc()
         return {"success": False, "error": f"Failed to build review packet: {str(e)}"}
 
-from pydantic import BaseModel, Field, field_validator
-
-class UNetHyperparameters(BaseModel):
-    learning_rate: float = Field(..., ge=1e-6, le=1e-1)
-    batch_size: int = Field(..., ge=2, le=128)
-    resolution: int = Field(..., ge=128, le=2048)
-    model_capacity: str = Field(..., pattern="^(narrow|wide)$")
-    loss_weight_ratio: float = Field(..., ge=0.0, le=1.0)
-
-    @field_validator("resolution")
-    @classmethod
-    def validate_resolution(cls, v: int) -> int:
-        if v % 32 != 0:
-            raise ValueError("Resolution must be a multiple of 32 for U-Net downsampling compatibility.")
-        return v
-
-    @field_validator("batch_size")
-    @classmethod
-    def validate_batch_size(cls, v: int) -> int:
-        if v not in [2, 4, 8, 16, 32, 64, 128]:
-            raise ValueError("Batch size must be a power of 2 (e.g. 2, 4, 8, 16, 32, 64, 128).")
-        return v
-
-LEGACY_UNET_PARAMS = {
-    "learning_rate",
-    "batch_size",
-    "resolution",
-    "model_capacity",
-    "loss_weight_ratio",
-}
 
 def _validate_manual_parameters(manual_parameters: Dict[str, Any], study_name: str) -> Dict[str, Any]:
     """Validate agent-proposed params against DB-backed search space."""
+    from .validators import UNetHyperparameters, LEGACY_UNET_PARAMS
+
     config = load_hpo_config(study_name)
     norm = normalize_trial_params(dict(manual_parameters), config)
 
     space = load_active_search_space(study_name)
     space_keys = {k for k in space.keys() if not k.startswith("_") and isinstance(space.get(k), dict)}
 
-    # Legacy fallback check
+    # Study-specific validator for bridge-crack U-Net params
     if space_keys == LEGACY_UNET_PARAMS:
         try:
             valid = UNetHyperparameters(**norm)

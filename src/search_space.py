@@ -34,8 +34,9 @@ def _migrate_search_space(space: Dict[str, Any], study_name: Optional[str] = Non
 
 
 def load_search_space(study_name: Optional[str] = None) -> Dict[str, Any]:
+    from .settings import settings
     if not study_name:
-        study_name = os.getenv("HPO_STUDY_NAME", "seg_v1")
+        study_name = settings.study_name
     
     try:
         with get_db_session() as session:
@@ -57,8 +58,9 @@ def load_search_space(study_name: Optional[str] = None) -> Dict[str, Any]:
 
 
 def save_search_space(space: Dict[str, Any], study_name: Optional[str] = None):
+    from .settings import settings
     if not study_name:
-        study_name = os.getenv("HPO_STUDY_NAME", "seg_v1")
+        study_name = settings.study_name
     try:
         with get_db_session() as session:
             row = session.query(SystemConfiguration).filter_by(
@@ -250,8 +252,9 @@ def handle_api_get_search_space(study_name: Optional[str] = None):
 
 
 def handle_api_update_search_space(space: Dict[str, Any], study_name: Optional[str] = None):
+    from .settings import settings
     if not study_name:
-        study_name = space.get("study_name") or os.getenv("HPO_STUDY_NAME", "seg_v1")
+        study_name = space.get("study_name") or settings.study_name
     space_clean = {k: v for k, v in space.items() if k != "study_name"}
     
     current = load_search_space(study_name)
