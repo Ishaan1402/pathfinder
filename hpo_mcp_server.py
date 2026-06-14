@@ -3,11 +3,12 @@ import json
 import datetime
 import hashlib
 from typing import Optional, Dict, Any, List
-from pydantic import BaseModel, Field, field_validator
 import requests
 import optuna
 from optuna.trial import TrialState
 from mcp.server.fastmcp import FastMCP
+
+mcp = FastMCP("Pathfinder")
 
 from src.db_manager import init_db, get_db_session, DATABASE_URL
 from src.schema import (
@@ -36,12 +37,6 @@ from src.search_space import (
     _apply_search_space_patch,
 )
 from src.suggest import get_or_create_study, _enqueue_manual_trial
-
-# Initialize database schema and run migrations on startup
-init_db()
-
-# Create FastMCP server
-mcp = FastMCP("Pathfinder")
 
 from src.hpo_coordinator import _validate_manual_parameters
 
@@ -493,154 +488,8 @@ def init_from_manifest(yaml_str: str, force: bool = False) -> Dict[str, Any]:
 @mcp.tool()
 def export_manifest(study_name: str) -> str:
     """Export the active search space, HPO config, and context of an existing study as a valid manifest YAML string."""
-    import yaml
-    import json
-    
-    # Query database configurations
-    space_val = None
-    config_val = None
-    context_val = None
-    source_val = None
-
-    with get_db_session() as session:
-        space_row = session.query(SystemConfiguration).filter_by(
-            study_name=study_name, config_key="active_search_space"
-        ).first()
-        if space_row:
-            space_val = space_row.config_value
-            
-        config_row = session.query(SystemConfiguration).filter_by(
-            study_name=study_name, config_key="hpo_config"
-        ).first()
-        if config_row:
-            config_val = config_row.config_value
-            
-        context_row = session.query(SystemConfiguration).filter_by(
-            study_name=study_name, config_key="project_context"
-        ).first()
-        if context_row:
-            context_val = context_row.config_value
-            
-        source_row = session.query(SystemConfiguration).filter_by(
-            study_name=study_name, config_key="source_files"
-        ).first()
-        if source_row:
-            source_val = source_row.config_value
-
-    if not space_val:
-        raise ValueError(f"Study '{study_name}' not found in database.")
-
-    space = json.loads(space_val)
-    hpo_config = json.loads(config_val) if config_val else {}
-    project_context = json.loads(context_val) if context_val else {}
-    source_files = json.loads(source_val) if source_val else {}
-
-    # Reconstruct manifest dict
-    manifest = {
-        "study_name": study_name
-    }
-
-    if "manifest_metrics" in hpo_config:
-        manifest["metrics"] = hpo_config["manifest_metrics"]
-    else:
-        score_label = hpo_config.get("metric_score_label", "score")
-        loss_label = hpo_config.get("metric_loss_label", "loss")
-        
-        try:
-            study = optuna.load_study(study_name=study_name, storage=DATABASE_URL)
-            directions = [d.name.lower() for d in study.directions]
-        except Exception:
-            directions = ["maximize"]  # Default fallback
-
-        # Reconstruct metrics objectives
-        objectives = []
-        primary_score = "score" # default fallback
-        
-        if len(directions) > 1:
-            objectives.append({
-                "name": "loss",
-                "direction": "minimize",
-                "label": loss_label
-            })
-            objectives.append({
-                "name": "score",
-                "direction": "maximize",
-                "label": score_label
-            })
-            primary_score = "score"
-        else:
-            dir_name = "maximize"
-            if directions:
-                dir_name = "minimize" if directions[0] == "minimize" else "maximize"
-            objectives.append({
-                "name": "score",
-                "direction": dir_name,
-                "label": score_label
-            })
-            primary_score = "score"
-
-        manifest["metrics"] = {
-            "primary_score": primary_score,
-            "objectives": objectives
-        }
-
-    # Reconstruct params
-    params_list = []
-    for p_name, spec in space.items():
-        if not isinstance(spec, dict):
-            continue
-        ptype = spec.get("type")
-        param_def = {"name": p_name}
-        
-        if ptype in ("float", "float_log", "int"):
-            param_def["type"] = ptype
-            param_def["min"] = spec.get("min")
-            param_def["max"] = spec.get("max")
-        elif ptype == "categorical":
-            opts = spec.get("options", [])
-            if len(opts) == 1:
-                param_def["type"] = "fixed"
-                param_def["value"] = opts[0]
-            elif set(opts) == {True, False}:
-                param_def["type"] = "bool"
-            else:
-                param_def["type"] = "categorical"
-                param_def["options"] = opts
-        else:
-            param_def["type"] = "fixed"
-            param_def["value"] = spec.get("value")
-            
-        params_list.append(param_def)
-
-    manifest["params"] = params_list
-
-    # Eval protocol
-    eval_proto = hpo_config.get("eval_protocol", {})
-    if eval_proto and eval_proto.get("enabled"):
-        manifest["eval_protocol"] = {
-            "enabled": True,
-            "fixed_resolution": eval_proto.get("fixed_resolution"),
-            "train_resolution_param": eval_proto.get("train_resolution_param", "resolution")
-        }
-
-    # Worker entrypoint/env from project_context
-    worker_data = {}
-    if "worker_entrypoint" in project_context:
-        worker_data["entrypoint"] = project_context["worker_entrypoint"]
-    if "worker_env" in project_context:
-        worker_data["env"] = project_context["worker_env"]
-    if worker_data:
-        manifest["worker"] = worker_data
-
-    # Exclude system metadata from project_context
-    filtered_context = {k: v for k, v in project_context.items() if k not in ("worker_entrypoint", "worker_env")}
-    if filtered_context:
-        manifest["project_context"] = filtered_context
-
-    if source_files:
-        manifest["source_files"] = source_files
-
-    return yaml.dump(manifest, sort_keys=False)
+    from src.manifest import export_manifest_yaml
+    return export_manifest_yaml(study_name)
 
 # --- MCP PROMPT RESOURCES ---
 
@@ -676,4 +525,5 @@ Follow AGENTS.md. Trigger only when the user explicitly requests a review (watch
 """
 
 if __name__ == "__main__":
+    init_db()
     mcp.run()

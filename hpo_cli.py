@@ -43,7 +43,7 @@ from src.hpo_coordinator import (
 )
 from src.hpo_config import load_hpo_config
 from src.suggest import get_or_create_study, load_study, _enqueue_manual_trial
-from broker import load_search_space, _apply_search_space_patch
+from src.search_space import load_search_space, _apply_search_space_patch
 
 DEFAULT_STUDY = "bridge_crack_study"
 
@@ -374,13 +374,13 @@ def cmd_init(args):
         sys.exit(1)
 
 def cmd_manifest(args):
-    from hpo_mcp_server import export_manifest
+    from src.manifest import export_manifest_yaml
     
     study_name = args.study
     init_db()
     
     try:
-        yaml_str = export_manifest(study_name)
+        yaml_str = export_manifest_yaml(study_name)
         print(yaml_str)
         sys.exit(0)
     except Exception as e:
