@@ -69,9 +69,6 @@ def check_trial_health(study, score: Optional[float], loss: Optional[float], his
     reasons = []
     
     # Check 1: Score < score_min on a maximize objective
-    from optuna.study import StudyDirection
-    from src.metrics import score_objective_index, loss_objective_index
-    
     score_idx = score_objective_index(study)
     score_min = rules.get("score_min")
     if score_idx is not None and score is not None and score_min is not None:

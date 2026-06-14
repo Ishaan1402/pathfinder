@@ -4,9 +4,9 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from .schema import Base
 
-# Read database URL from environment or fallback to local SQLite database.
-# Note: For SQLite, we want to enable check_same_thread=False to support multiple threads/connections.
-DATABASE_URL = os.getenv("HPO_DATABASE_URL", "sqlite:///hpo_studies.db")
+from .settings import settings
+
+DATABASE_URL = settings.database_url
 
 from sqlalchemy import event
 
@@ -48,6 +48,7 @@ def init_db():
                 existing_tables.remove("study_status")
         except Exception as e:
             print(f"Migration: Error dropping legacy study_status table: {e}")
+            
 
     # Create all defined tables in schema
     Base.metadata.create_all(bind=engine)
@@ -163,7 +164,7 @@ def _migrate_segmentation_metrics_to_trial_results():
             if res and res[0] > 0:
                 return
 
-            study_name = os.getenv("HPO_STUDY_NAME", "seg_v1")
+            study_name = settings.study_name
             try:
                 s_res = conn.execute(text("SELECT study_name FROM study_status LIMIT 1")).fetchone()
                 if s_res:

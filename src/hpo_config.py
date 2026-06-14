@@ -76,8 +76,9 @@ LEGACY_DEFAULT_HPO_CONFIG: Dict[str, Any] = {
 
 
 def load_hpo_config(study_name: Optional[str] = None) -> Dict[str, Any]:
+    from .settings import settings
     if not study_name:
-        study_name = os.getenv("HPO_STUDY_NAME", "seg_v1")
+        study_name = settings.study_name
 
     # Try loading study-specific config from DB
     data = None
@@ -142,8 +143,9 @@ def load_hpo_config(study_name: Optional[str] = None) -> Dict[str, Any]:
 
 
 def save_hpo_config(config: Dict[str, Any], study_name: Optional[str] = None) -> None:
+    from .settings import settings
     if not study_name:
-        study_name = os.getenv("HPO_STUDY_NAME", "seg_v1")
+        study_name = settings.study_name
 
     # Enforce config_version on save to prevent client downgrades
     config = dict(config)

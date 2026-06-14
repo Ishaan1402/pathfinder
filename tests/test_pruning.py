@@ -25,7 +25,7 @@ import optuna
 from optuna.trial import TrialState
 
 from src.db_manager import init_db
-from broker import _epoch_composite_score
+from src.pruning import _epoch_composite_score
 
 
 class TestPruning(unittest.TestCase):

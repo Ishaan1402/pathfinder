@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 
 
 def _claim_in_new_session(study_name, trial_id, worker_id):
-    from broker import _try_claim_lease
+    from src.leases import _try_claim_lease
     from src.db_manager import get_db_session
     with get_db_session() as session:
         return _try_claim_lease(session, study_name, trial_id, worker_id)

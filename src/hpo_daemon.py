@@ -42,7 +42,7 @@ def check_and_alert_study(study_name: str):
     macOS notification pointing the user at the dashboard. No LLM is ever called here.
     """
     try:
-        from broker import get_or_create_study
+        from .suggest import get_or_create_study
 
         try:
             study = get_or_create_study(study_name)
@@ -89,7 +89,7 @@ def reclaim_expired_leases():
     from datetime import datetime
     import optuna
     from src.schema import TrialLease
-    from broker import get_or_create_study
+    from .suggest import get_or_create_study
 
     try:
         with get_db_session() as session:

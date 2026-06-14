@@ -271,7 +271,7 @@ def run_integration_test():
     # 9. Test Nudge Dismissal
     print("\n--- [Step 9: Testing Nudge Dismissal Persistence] ---")
     from src.hpo_config import load_hpo_config
-    from broker import get_or_create_study
+    from src.suggest import get_or_create_study
     from src.hpo_coordinator import study_eval_insights, compute_review_heuristics
     hpo_config = load_hpo_config(study_name)
     study = get_or_create_study(study_name)

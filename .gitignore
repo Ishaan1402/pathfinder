@@ -37,3 +37,6 @@ pending_changes.json
 .env
 .agents/
 
+# Build artifacts
+*.egg-info/
+

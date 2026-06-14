@@ -235,7 +235,7 @@ Creates a point-in-time snapshot of the full SQLite database (`hpo_studies.db`) 
 | Variable | Default | Description |
 |---|---|---|
 | `HPO_BROKER_URL` | `http://localhost:8000` | URL the worker uses to reach the broker. |
-| `HPO_STUDY_NAME` | `seg_v1` | Default study name when not passed explicitly. |
+| `HPO_STUDY_NAME` | *(none)* | Default study name when not passed explicitly. |
 | `HPO_SECRET_TOKEN` | *(none)* | Bearer token required when `--tunnel` auth is enabled. |
 | `HPO_SPARKLINES` | `0` | Set to `1` to print a Unicode training curve on trial completion. |
 | `HPO_BACKUP_ON_START` | `0` | Set to `1` to run an automatic database backup when the broker starts. Equivalent to `--backup-on-start` CLI flag. |
