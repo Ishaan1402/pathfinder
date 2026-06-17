@@ -119,16 +119,7 @@ async function pollData() {
     }
 }
 
-function initHpoMarks() {}
-function bindHpoMarkTap() {}
-function setHpoMarkMode() {}
-function updateHpoMarkModes() {}
-
 // Window exports
 window.pollData = pollData;
-window.initHpoMarks = initHpoMarks;
-window.bindHpoMarkTap = bindHpoMarkTap;
-window.setHpoMarkMode = setHpoMarkMode;
-window.updateHpoMarkModes = updateHpoMarkModes;
 
 window.addEventListener("hashchange", () => window.handleRouting());

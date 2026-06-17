@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse, FileResponse
 from ..settings import settings
@@ -7,12 +8,12 @@ router = APIRouter()
 
 # Resolve absolute paths relative to this router's module file (src/routers/static.py)
 # Up two directories gets us to the project root
-_base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_base_dir = Path(__file__).resolve().parent.parent.parent
 
 @router.get("/", response_class=HTMLResponse)
 def get_gui():
-    gui_path = os.path.join(_base_dir, "web", "index.html")
-    if os.path.exists(gui_path):
+    gui_path = _base_dir / "web" / "index.html"
+    if gui_path.exists():
         with open(gui_path, "r") as f:
             html = f.read()
         # Inject only a NON-SECRET hint so the dashboard knows whether to prompt for login.
