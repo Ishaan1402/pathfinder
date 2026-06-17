@@ -2,9 +2,13 @@
 
 Configuration is persisted in SQLite (system_configuration); there is no on-disk config file.
 """
-import os
+
 import json
-from typing import Any, Dict, Optional
+import logging
+import copy
+from typing import Dict, Any, Optional
+
+logger = logging.getLogger(__name__)
 
 # Generic defaults for hyperparameter optimization configs.
 # These defaults can be overridden per-study in the system_configuration database table.
@@ -114,15 +118,15 @@ def load_hpo_config(study_name: Optional[str] = None) -> Dict[str, Any]:
         # Seed it into DB for this study so it exists in DB
         try:
             save_hpo_config(data, study_name)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to seed hpo_config in DB: {e}")
 
     is_legacy_name = study_name in ("seg_v1", "bridge_crack_study")
     config_version = data.get("config_version", 1 if is_legacy_name else 2)
     defaults = LEGACY_DEFAULT_HPO_CONFIG if config_version == 1 else DEFAULT_HPO_CONFIG
 
     try:
-        merged = json.loads(json.dumps(defaults))
+        merged = copy.deepcopy(defaults)
         merged.update({k: v for k, v in data.items() if k not in ("eval_protocol", "param_labels", "legacy_param_aliases", "legacy_capacity_values", "validation_rules")})
         merged["eval_protocol"] = {**defaults.get("eval_protocol", {}), **data.get("eval_protocol", {})}
         merged["validation_rules"] = {**defaults.get("validation_rules", {}), **data.get("validation_rules", {})}
@@ -139,7 +143,7 @@ def load_hpo_config(study_name: Optional[str] = None) -> Dict[str, Any]:
             }
         return merged
     except Exception:
-        return json.loads(json.dumps(defaults))
+        return copy.deepcopy(defaults)
 
 
 def save_hpo_config(config: Dict[str, Any], study_name: Optional[str] = None) -> None:

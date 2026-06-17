@@ -141,8 +141,8 @@ def run_daemon_loop(interval_seconds: int = 10):
                 with get_db_session() as session:
                     rows = session.query(StudyStatus).all()
                     studies = [r.study_name for r in rows]
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"Failed to fetch studies: {e}")
 
             if not studies:
                 studies = [DEFAULT_STUDY]

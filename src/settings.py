@@ -2,9 +2,11 @@ import os
 from typing import Optional, List
 
 class Settings:
+    DEFAULT_DB_FILENAME = "hpo_studies.db"
+
     @property
     def database_url(self) -> str:
-        return os.getenv("HPO_DATABASE_URL", "sqlite:///hpo_studies.db")
+        return os.getenv("HPO_DATABASE_URL", f"sqlite:///{self.DEFAULT_DB_FILENAME}")
 
     @property
     def secret_token(self) -> Optional[str]:
