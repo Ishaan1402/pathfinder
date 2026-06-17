@@ -1,5 +1,5 @@
 import time
-import os
+
 import json
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
@@ -167,7 +167,7 @@ def handle_api_suggest_trial(req: SuggestRequest):
                 except Exception:
                     pass
                 with get_db_session() as session:
-                    session.query(TrialLease).filter_by(trial_id=trial_id).delete()
+                    delete_lease_by_trial_id(session, trial_id)
                     session.commit()
                 raise
 
@@ -197,7 +197,7 @@ def handle_api_suggest_trial(req: SuggestRequest):
             except Exception:
                 pass
             with get_db_session() as session:
-                session.query(TrialLease).filter_by(trial_id=trial_id).delete()
+                delete_lease_by_trial_id(session, trial_id)
                 session.commit()
             raise HTTPException(
                 status_code=500,

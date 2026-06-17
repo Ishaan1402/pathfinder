@@ -1,10 +1,13 @@
-import os
+
 import contextlib
+import logging
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from .schema import Base
 
 from .settings import settings
+
+logger = logging.getLogger(__name__)
 
 DATABASE_URL = settings.database_url
 
@@ -173,8 +176,8 @@ def _migrate_segmentation_metrics_to_trial_results():
                     s_res = conn.execute(text("SELECT study_name FROM study_reviews LIMIT 1")).fetchone()
                     if s_res:
                         study_name = s_res[0]
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Failed to extract study_name during DB migration: {e}")
 
             inspector = inspect(engine)
             seg_cols = {c["name"] for c in inspector.get_columns("segmentation_metrics")}
@@ -226,3 +229,11 @@ def get_db_session():
         raise e
     finally:
         session.close()
+
+def get_or_create_study_status(session, study_name: str):
+    from src.schema import StudyStatus
+    status = session.query(StudyStatus).filter_by(study_name=study_name).first()
+    if not status:
+        status = StudyStatus(study_name=study_name)
+        session.add(status)
+    return status
