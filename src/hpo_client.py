@@ -32,10 +32,7 @@ import requests
 
 DEFAULT_TIMEOUT = 120
 
-# Client headers defaults
-_HEADERS = {
-    "Content-Type": "application/json",
-}
+
 
 
 def normalize_broker_url(base_url: str, path: str) -> str:
@@ -58,14 +55,10 @@ class TrialSession:
         study_name: Optional[str] = None,
         timeout: int = DEFAULT_TIMEOUT,
     ):
-        self.broker_url = broker_url or os.getenv("HPO_BROKER_URL")
+        self.broker_url = broker_url or os.getenv("HPO_BROKER_URL") or "http://localhost:8000"
         self.study_name = study_name or os.getenv("HPO_STUDY_NAME")
         self.timeout = timeout
 
-        if not self.broker_url:
-            raise ValueError(
-                "broker_url is required (pass it explicitly or set HPO_BROKER_URL)."
-            )
         if not self.study_name:
             raise ValueError(
                 "study_name is required (pass it explicitly or set HPO_STUDY_NAME)."
@@ -197,9 +190,13 @@ class TrialSession:
                 resp.raise_for_status()
                 return resp.json()
             except requests.RequestException as e:
+                import requests
+                if isinstance(e, requests.exceptions.ConnectionError) and "Connection refused" in str(e):
+                    raise RuntimeError(f"Cannot reach HPO broker at {self.broker_url}. Is the server running?") from e
+                
                 attempt += 1
                 if attempt >= max_attempts or not self._is_retryable(e):
-                    raise e
+                    raise RuntimeError(f"Cannot reach HPO broker at {self.broker_url}. Is the server running? Details: {e}") if isinstance(e, requests.exceptions.ConnectionError) else e
                 print(f"Request POST {path} failed: {e}. Retrying in {backoff}s (attempt {attempt}/{max_attempts})...")
                 time.sleep(backoff)
                 backoff = min(backoff * 2.0, 10.0)
@@ -219,9 +216,13 @@ class TrialSession:
                 resp.raise_for_status()
                 return resp.json()
             except requests.RequestException as e:
+                import requests
+                if isinstance(e, requests.exceptions.ConnectionError) and "Connection refused" in str(e):
+                    raise RuntimeError(f"Cannot reach HPO broker at {self.broker_url}. Is the server running?") from e
+                
                 attempt += 1
                 if attempt >= max_attempts or not self._is_retryable(e):
-                    raise e
+                    raise RuntimeError(f"Cannot reach HPO broker at {self.broker_url}. Is the server running? Details: {e}") if isinstance(e, requests.exceptions.ConnectionError) else e
                 print(f"Request GET {path} failed: {e}. Retrying in {backoff}s (attempt {attempt}/{max_attempts})...")
                 time.sleep(backoff)
                 backoff = min(backoff * 2.0, 10.0)
@@ -418,10 +419,7 @@ class TrialSession:
 
         if os.getenv("HPO_SPARKLINES") == "1":
             try:
-                try:
-                    from src.sparklines import print_sparkline
-                except ImportError:
-                    from sparklines import print_sparkline
+                from src.sparklines import print_sparkline
 
                 completed_scores = data.get("completed_scores", [])
                 best_score = data.get("best_score", 0.0)
