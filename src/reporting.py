@@ -1,40 +1,45 @@
 import math
 from typing import Optional, Dict, Any, List
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from fastapi import HTTPException
 import optuna
 from optuna.trial import TrialState
 
-from src.db_manager import get_db_session
+from src.db_manager import get_db_session, get_or_create_study_status
 from src.schema import TrialResult, AgentReasoningLog, StudyStatus, TrialLease
 from src.hpo_config import load_hpo_config
-from src.metrics import get_score, loss_objective_index, score_objective_index
+from src.metrics import get_score, loss_objective_index, score_objective_index, TERMINAL_STATES, has_invalid_metrics
 from src.hpo_coordinator import compute_health_tier, write_ide_status_file, backfill_review_outcomes
-from src.leases import _lease_is_owned
+from src.leases import _lease_is_owned, delete_lease_by_trial_id
 from src.pruning import _epoch_composite_score, _pruning_peer_trials
 from src.suggest import load_study
 
+class AtLeastOneMetricMixin(BaseModel):
+    score: Optional[float] = None
+    loss: Optional[float] = None
 
-class ReportEpochRequest(BaseModel):
+    @model_validator(mode='after')
+    def check_at_least_one_metric(self):
+        if self.score is None and self.loss is None:
+            raise ValueError('At least one of score or loss must be provided')
+        return self
+
+
+class ReportEpochRequest(AtLeastOneMetricMixin):
     study_name: str
     trial_id: int
     worker_id: Optional[str] = None
     epoch: int
-    score: float
-    loss: float
     gpu_memory: Optional[float] = 0.0
     speed_ips: Optional[float] = 0.0
     score_eval_fixed: Optional[float] = None
     loss_eval_fixed: Optional[float] = None
 
-
-class CompleteTrialRequest(BaseModel):
+class CompleteTrialRequest(AtLeastOneMetricMixin):
     study_name: str
     trial_id: int
     worker_id: Optional[str] = None
     epoch: int
-    score: float
-    loss: float
     weights_path: str
     history: List[Dict[str, Any]]
     state: Optional[str] = "COMPLETE"
@@ -121,7 +126,7 @@ def handle_api_report_epoch(req: ReportEpochRequest):
 
         # Idempotency check: if already completed, pruned, or failed, return the existing status
         # (BEFORE the lease check, so post-prune/idempotent retries don't 403 once the lease is gone).
-        if trial_obj.state in (TrialState.COMPLETE, TrialState.PRUNED, TrialState.FAIL):
+        if trial_obj.state in TERMINAL_STATES:
             return {
                 "should_prune": trial_obj.state == TrialState.PRUNED,
                 "prune_metric": "none",
@@ -228,7 +233,7 @@ def handle_api_report_epoch(req: ReportEpochRequest):
                 study.tell(trial_obj.number, state=optuna.trial.TrialState.PRUNED)
                 # Cleanup lease immediately
                 with get_db_session() as session:
-                    session.query(TrialLease).filter_by(trial_id=req.trial_id).delete()
+                    delete_lease_by_trial_id(session, req.trial_id)
                     session.commit()
             except Exception as tell_err:
                 print(f"Could not tell pruned state to Optuna for trial #{trial_obj.number}: {tell_err}")
@@ -271,7 +276,7 @@ def handle_api_complete_trial(req: CompleteTrialRequest):
         # Lease ownership: in-flight trials must be completed by their lease holder. Terminal
         # trials skip this (idempotent retries and post-prune completes, where the lease was
         # already deleted when the trial was pruned, must still record their final result).
-        if trial_obj.state not in (TrialState.COMPLETE, TrialState.PRUNED, TrialState.FAIL):
+        if trial_obj.state not in TERMINAL_STATES:
             if not _lease_is_owned(req.study_name, req.trial_id, req.worker_id):
                 raise HTTPException(
                     status_code=403,
@@ -300,20 +305,19 @@ def handle_api_complete_trial(req: CompleteTrialRequest):
                     detail="Rejecting complete: trial reported 0.0 for both score and loss. Likely training did not run.",
                 )
         
-        import math
-        for val_name, val in [("score", final_score), ("loss", final_loss), ("score_eval_fixed", final_score_fixed), ("loss_eval_fixed", final_loss_fixed)]:
-            if val is not None and (math.isnan(val) or math.isinf(val)):
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Rejecting complete: {val_name} is NaN or Inf, which is invalid.",
-                )
+        invalid_metric = has_invalid_metrics(score=final_score, loss=final_loss, score_eval_fixed=final_score_fixed, loss_eval_fixed=final_loss_fixed)
+        if invalid_metric:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Rejecting complete: {invalid_metric} is NaN or Inf, which is invalid.",
+            )
 
         # Check trial metrics health
         health_tier, health_reason = check_trial_health(study, final_score, final_loss, req.history)
 
         # Only set Optuna user attrs if the trial is not finished yet in Optuna.
         # Otherwise, Optuna will raise UpdateFinishedTrialError.
-        if trial_obj.state not in (TrialState.COMPLETE, TrialState.PRUNED, TrialState.FAIL):
+        if trial_obj.state not in TERMINAL_STATES:
             try:
                 study._storage.set_trial_user_attr(trial_obj._trial_id, "gpu_memory", req.gpu_memory)
                 study._storage.set_trial_user_attr(trial_obj._trial_id, "speed_ips", req.speed_ips)
@@ -347,7 +351,7 @@ def handle_api_complete_trial(req: CompleteTrialRequest):
 
 
         # Check if trial is already finished in Optuna
-        if trial_obj.state in (TrialState.COMPLETE, TrialState.PRUNED, TrialState.FAIL):
+        if trial_obj.state in TERMINAL_STATES:
             pass
         else:
             if t_state == TrialState.COMPLETE:
@@ -423,7 +427,7 @@ def handle_api_complete_trial(req: CompleteTrialRequest):
                     ))
             
             # Delete trial lease
-            session.query(TrialLease).filter_by(trial_id=req.trial_id).delete()
+            delete_lease_by_trial_id(session, req.trial_id)
             session.commit()
 
         try:
@@ -447,10 +451,7 @@ def handle_api_complete_trial(req: CompleteTrialRequest):
         try:
             health_tier, health_reason = compute_health_tier(study, req.study_name)
             with get_db_session() as session:
-                status = session.query(StudyStatus).filter_by(study_name=req.study_name).first()
-                if not status:
-                    status = StudyStatus(study_name=req.study_name)
-                    session.add(status)
+                status = get_or_create_study_status(session, req.study_name)
                 status.health_tier = health_tier
                 status.health_reason = health_reason
 

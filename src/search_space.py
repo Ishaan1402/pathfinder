@@ -1,6 +1,9 @@
-import os
+
 import json
+import logging
 from typing import Optional, Dict, Any, List
+
+logger = logging.getLogger(__name__)
 from fastapi import HTTPException
 import optuna
 from optuna.distributions import CategoricalDistribution
@@ -52,8 +55,8 @@ def load_search_space(study_name: Optional[str] = None) -> Dict[str, Any]:
     # Seed it in DB if not found
     try:
         save_search_space(DEFAULT_SEARCH_SPACE, study_name)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Failed to seed search_space in DB: {e}")
     return DEFAULT_SEARCH_SPACE.copy()
 
 

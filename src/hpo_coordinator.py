@@ -9,23 +9,23 @@ It is imported by both broker.py (HTTP runtime) and hpo_mcp_server.py (MCP tools
 the two surfaces speak the same language without duplicating the suggest path or the
 drift-detection logic.
 """
+import datetime
+import json
+import logging
 from typing import Any, Dict, List, Optional
 
-import datetime
 import optuna
 from optuna.trial import TrialState
 
-import os
-import json
 from .db_manager import get_db_session, DATABASE_URL
 from .schema import StudyReview, StudyStatus, TrialResult, SystemConfiguration, CompactedPacket
 from .hpo_config import load_hpo_config, normalize_trial_params, param_display_name
-from .metrics import get_score, get_loss, get_best_trial, get_best_score, score_objective_index
+from .metrics import get_score, get_loss, get_best_trial, get_best_score, score_objective_index, get_completed_trials, get_eval_attr_names, TERMINAL_STATES
+
+logger = logging.getLogger(__name__)
 
 # --- Tunables for drift heuristics (deterministic, no model calls) ---
-RECENT_TRIALS_IN_PACKET = 8
-PRUNE_STREAK_THRESHOLD = 3
-STAGNATION_WINDOW = 5
+
 MIN_COMPLETED_FOR_FIRST_REVIEW = 5
 
 POLICY_ACTIONS = ("no_change", "update_active_search_space", "enqueue_one_manual_trial")
@@ -58,7 +58,7 @@ def compute_statistical_confidence(n_complete: int) -> str:
 
 
 def get_best_primary_score(study) -> Optional[float]:
-    completed = [t for t in study.trials if t.state == TrialState.COMPLETE]
+    completed = get_completed_trials(study)
     if not completed:
         return None
     score = get_best_score(completed, study)
@@ -130,7 +130,7 @@ def compute_coordinator_accuracy(study_name: str) -> Dict[str, Any]:
 def mark_review_applied(study_name: str) -> None:
     """Record when a coordinator search-space patch was committed."""
     study = optuna.load_study(study_name=study_name, storage=DATABASE_URL)
-    complete_count = sum(1 for t in study.trials if t.state == TrialState.COMPLETE)
+    complete_count = len(get_completed_trials(study))
     now = datetime.datetime.utcnow()
     with get_db_session() as session:
         review = (
@@ -150,8 +150,7 @@ def mark_review_applied(study_name: str) -> None:
 def backfill_review_outcomes(study_name: str) -> None:
     """Measure coordinator forecast accuracy after post-apply trial windows."""
     study = optuna.load_study(study_name=study_name, storage=DATABASE_URL)
-    complete_count = sum(1 for t in study.trials if t.state == TrialState.COMPLETE)
-    terminal_states = (TrialState.COMPLETE, TrialState.PRUNED, TrialState.FAIL)
+    complete_count = len(get_completed_trials(study))
 
     with get_db_session() as session:
         pending = (
@@ -171,7 +170,7 @@ def backfill_review_outcomes(study_name: str) -> None:
             applied_at = review.applied_at.replace(tzinfo=None) if review.applied_at.tzinfo else review.applied_at
             finished_since = [
                 t for t in study.trials
-                if t.state in terminal_states
+                if t.state in TERMINAL_STATES
                 and t.datetime_complete
                 and (
                     t.datetime_complete.replace(tzinfo=None)
@@ -211,7 +210,7 @@ def build_review_prompt(study_name: str) -> str:
     stat_confidence = "low"
     try:
         study = optuna.load_study(study_name=study_name, storage=DATABASE_URL)
-        completed = [t for t in study.trials if t.state == TrialState.COMPLETE]
+        completed = get_completed_trials(study)
         stat_confidence = compute_statistical_confidence(len(completed))
         if completed:
             best_t = get_best_trial(completed, study) or study.best_trial
@@ -251,8 +250,8 @@ def load_active_search_space(study_name: Optional[str] = None) -> Dict[str, Any]
         if row:
             try:
                 return json.loads(row.config_value)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Failed to parse active_search_space for {study_name}: {e}")
     return {}
 
 
@@ -635,9 +634,9 @@ def study_eval_insights(study, config: Dict[str, Any]) -> Dict[str, Any]:
     train_param = ev.get("train_resolution_param", "resolution")
     fixed_res = ev.get("fixed_resolution")
     low_warn = ev.get("low_train_res_warning")
-    dice_fixed_key = ev.get("fixed_dice_attr", "dice_eval_fixed")
+    dice_fixed_key, _ = get_eval_attr_names(ev)
 
-    complete = [t for t in study.trials if t.state == TrialState.COMPLETE]
+    complete = get_completed_trials(study)
     by_res: Dict[int, List] = {}
     warnings = []
 
@@ -731,7 +730,7 @@ def count_evaluated_trials(study) -> int:
     return sum(
         1
         for t in study.trials
-        if t.state in (TrialState.COMPLETE, TrialState.PRUNED, TrialState.FAIL)
+        if t.state in TERMINAL_STATES
     )
 
 
@@ -744,8 +743,8 @@ def compute_health_tier(study, study_name: str) -> tuple[str, Optional[str]]:
     from optuna.trial import TrialState
     
     trials = list(study.trials)
-    finished = sorted([t for t in trials if t.state in (TrialState.COMPLETE, TrialState.PRUNED, TrialState.FAIL)], key=lambda t: t.number)
-    completed = sorted([t for t in trials if t.state == TrialState.COMPLETE], key=lambda t: t.number)
+    finished = sorted([t for t in trials if t.state in TERMINAL_STATES], key=lambda t: t.number)
+    completed = sorted(get_completed_trials(study), key=lambda t: t.number)
     
     # 🔴 Intervene Triggers
     
@@ -853,7 +852,7 @@ def compute_review_heuristics(
     """Simplified heuristics adapter using compute_health_tier."""
     health_tier, health_reason = compute_health_tier(study, study_name)
     review_recommended = health_tier in ("watch", "intervene")
-    finished = [t for t in study.trials if t.state in (TrialState.COMPLETE, TrialState.PRUNED, TrialState.FAIL)]
+    finished = [t for t in study.trials if t.state in TERMINAL_STATES]
     n_eval = len(finished)
     latest = get_latest_study_review(study_name)
     
@@ -936,7 +935,7 @@ def save_study_review(
 
     # Load study first to run validation assertions
     study = optuna.load_study(study_name=study_name, storage=DATABASE_URL)
-    completed_trials = [t for t in study.trials if t.state == TrialState.COMPLETE]
+    completed_trials = get_completed_trials(study)
     completed_count = len(completed_trials)
 
     if completed_count < MIN_COMPLETED_FOR_FIRST_REVIEW:
@@ -1023,8 +1022,8 @@ def save_study_review(
 
 
 # --- fANOVA + packet assembly ---
-def _fanova_importances(study, config: Dict[str, Any]) -> Dict[str, float]:
-    complete = [t for t in study.trials if t.state == TrialState.COMPLETE]
+def get_fanova_importances(study, config: Dict[str, Any]) -> Dict[str, float]:
+    complete = get_completed_trials(study)
     if len(complete) < 2:
         return {}
     importances: Dict[str, float] = {}
@@ -1095,58 +1094,56 @@ def build_review_packet(study_name: str) -> Dict[str, Any]:
             if cached:
                 try:
                     packet = json.loads(cached.packet_json)
-                    n_complete = sum(1 for t in study.trials if t.state == TrialState.COMPLETE)
+                    n_complete = len(get_completed_trials(study))
                     packet["statistical_confidence"] = compute_statistical_confidence(n_complete)
                     packet["coordinator_accuracy"] = compute_coordinator_accuracy(study_name)
                     packet["review_prompt"] = build_review_prompt(study_name)
                     packet["policy_actions"] = list(POLICY_ACTIONS)
                     packet["latest_review"] = get_latest_study_review(study_name)
                     return packet
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(f"Failed to load cached packet for {study_name}: {e}")
 
         # Otherwise materialize from scratch
-        # 1. Fetch DB metrics
-        db_metrics = {}
         with get_db_session() as session:
+            # 1. Fetch DB metrics
+            db_metrics = {}
             rows = session.query(TrialResult).filter_by(study_name=study_name).all()
             for r in rows:
                 db_metrics[r.trial_id] = r.to_dict()
 
-        # 2. Fetch search space and config
-        search_space = load_active_search_space(study_name)
-        config = load_hpo_config(study_name)
+            # 2. Fetch search space and config
+            search_space = load_active_search_space(study_name)
+            config = load_hpo_config(study_name)
 
-        # 3. Fetch project context
-        project_context = {}
-        with get_db_session() as session:
+            # 3. Fetch project context
+            project_context = {}
             context_row = session.query(SystemConfiguration).filter_by(
                 study_name=study_name, config_key="project_context"
             ).first()
             if context_row:
                 try:
                     project_context = json.loads(context_row.config_value)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(f"Failed to parse project_context for {study_name}: {e}")
 
-        # 4. Fetch health tier
-        health_tier, health_reason = compute_health_tier(study, study_name)
+            # 4. Fetch health tier
+            health_tier, health_reason = compute_health_tier(study, study_name)
 
-        # 5. Fetch past reviews
-        past_reviews = []
-        with get_db_session() as session:
-            rows = (
+            # 5. Fetch past reviews
+            past_reviews = []
+            rev_rows = (
                 session.query(StudyReview)
                 .filter_by(study_name=study_name)
                 .order_by(StudyReview.created_at.desc(), StudyReview.id.desc())
                 .limit(3)
                 .all()
             )
-            for r in rows:
+            for r in rev_rows:
                 past_reviews.append(r.to_dict())
 
         # 6. Accuracy + statistical confidence
-        n_complete = sum(1 for t in study.trials if t.state == TrialState.COMPLETE)
+        n_complete = len(get_completed_trials(study))
         statistical_confidence = compute_statistical_confidence(n_complete)
         accuracy_stats = compute_coordinator_accuracy(study_name)
 
@@ -1268,8 +1265,8 @@ def load_study_cards(study_name: Optional[str] = None) -> List[Dict[str, Any]]:
                 try:
                     with open(full_path, "r") as f:
                         content = f.read()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(f"Failed to read model card {full_path}: {e}")
             card_dict = c.to_dict()
             card_dict["markdown_content"] = content
             result.append(card_dict)
@@ -1295,8 +1292,9 @@ def write_ide_status_file(study_name: str, health_tier: str, health_reason: str,
     }
     
     # Write to .hpo_status.json in workspace root
-    root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    status_file_path = os.path.join(root_dir, ".hpo_status.json")
+    from pathlib import Path
+    root_dir = Path(__file__).resolve().parent.parent
+    status_file_path = root_dir / ".hpo_status.json"
     
     try:
         with open(status_file_path, "w") as f:

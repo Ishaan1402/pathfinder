@@ -1,8 +1,12 @@
+import os
 import json
+import logging
 import optuna
 from typing import Dict, Any, List, Optional
 
 from src.db_manager import get_db_session, DATABASE_URL
+
+logger = logging.getLogger(__name__)
 from src.schema import SystemConfiguration, StudyStatus
 
 def initialize_study(
@@ -136,10 +140,10 @@ def init_study_from_manifest_dict(data: Dict[str, Any], force: bool = False) -> 
                 ).first()
                 if row:
                     study_exists = True
-        except Exception:
-            pass
-    except Exception:
-        pass
+        except Exception as e:
+            logger.warning(f"Failed to check study existence in DB: {e}")
+    except Exception as e:
+        logger.warning(f"Failed to check Optuna study existence: {e}")
 
     if study_exists and not force:
         raise ValueError(f"Study '{study_name}' already exists. Refusing to initialize. Use --force to overwrite.")

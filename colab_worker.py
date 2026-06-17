@@ -138,17 +138,9 @@ BROKER_URL = os.getenv("HPO_BROKER_URL")
 if not BROKER_URL:
     raise ValueError("HPO_BROKER_URL environment variable must be set to connect to Pathfinder.")
 
-# HTTP Headers helper: skip interstitial only for ngrok urls
-def _get_headers(url: str) -> Dict[str, str]:
-    headers = {"Content-Type": "application/json"}
-    if url and ("ngrok-free.app" in url or "ngrok.io" in url):
-        headers["ngrok-skip-browser-warning"] = "1"
-    token = os.getenv("HPO_SECRET_TOKEN")
-    if token:
-        headers["X-HPO-Token"] = token
-    return headers
 
-BROKER_HTTP_HEADERS = _get_headers(BROKER_URL or "")
+
+
 
 def broker_get(path: str, timeout: int = 30):
     base = BROKER_URL.rstrip("/")

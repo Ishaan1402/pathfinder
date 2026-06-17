@@ -139,3 +139,6 @@ def handle_api_heartbeat(req: HeartbeatRequest):
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+def delete_lease_by_trial_id(session, trial_id: int) -> None:
+    session.query(TrialLease).filter_by(trial_id=trial_id).delete()

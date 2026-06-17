@@ -150,7 +150,7 @@ def validate_search_space(
         try:
             if float(max_bs) >= 64 and float(max_res) >= 1024:
                 warnings.append(f"High risk configuration: batch_size={max_bs} combined with resolution={max_res} has historically high OOM risk.")
-        except Exception:
+        except (ValueError, TypeError):
             pass
 
     if tunable_count == 0:

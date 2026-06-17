@@ -347,9 +347,118 @@ def cmd_validate(args):
           f"{len(data.get('metrics', {}).get('objectives', []))} objective(s)")
     sys.exit(0)
 
+def cmd_quickstart(args):
+    print("Welcome to Pathfinder Quickstart!")
+    print("Let's get a dead-simple dummy optimization study running.\n")
+    
+    study_name_base = input("1. Study Name [quickstart_study]: ").strip() or "quickstart_study"
+    param_name = input("2. Tunable Hyperparameter Name [x]: ").strip() or "x"
+    param_min_str = input(f"   Minimum bound for {param_name} [-10.0]: ").strip() or "-10.0"
+    param_max_str = input(f"   Maximum bound for {param_name} [10.0]: ").strip() or "10.0"
+    direction = input("3. Optimization Direction (minimize/maximize) [minimize]: ").strip().lower() or "minimize"
+    
+    if direction not in ("minimize", "maximize"):
+        print("✗ Invalid direction. Must be minimize or maximize.")
+        sys.exit(1)
+        
+    try:
+        p_min = float(param_min_str)
+        p_max = float(param_max_str)
+    except ValueError:
+        print("✗ Bounds must be numerical.")
+        sys.exit(1)
+        
+    init_db()
+    with get_db_session() as session:
+        from src.schema import StudyStatus
+        # Auto-suffix handling
+        study_name = study_name_base
+        suffix = 2
+        while session.query(StudyStatus).filter_by(study_name=study_name).first() is not None:
+            if suffix > 5:
+                print(f"\n✗ Error: Studies from {study_name_base} to {study_name_base}_5 already exist.")
+                print("Please provide a different study name or delete an existing one.")
+                sys.exit(1)
+            study_name = f"{study_name_base}_{suffix}"
+            suffix += 1
+
+    if study_name != study_name_base:
+        print(f"\nℹ Note: '{study_name_base}' existed, using '{study_name}' instead.")
+        
+    yaml_content = f"""study_name: {study_name}
+
+metrics:
+  primary_score: {('loss' if direction == 'minimize' else 'score')}
+  objectives:
+    - name: {('loss' if direction == 'minimize' else 'score')}
+      direction: {direction}
+      label: "Metric"
+
+params:
+  - name: {param_name}
+    type: float
+    min: {p_min}
+    max: {p_max}
+
+worker:
+  entrypoint: python quickstart_worker.py
+"""
+    yaml_path = "quickstart.hpo.yaml"
+    with open(yaml_path, "w") as f:
+        f.write(yaml_content)
+        
+    metric_name = "loss" if direction == "minimize" else "score"
+    worker_content = f"""import sys
+from hpo_client import TrialSession
+
+def main():
+    session = TrialSession(broker_url="http://localhost:8000", study_name="{study_name}")
+    trial = session.suggest()
+    {param_name} = trial["params"]["{param_name}"]
+    
+    # Dummy math evaluation
+    val = ({param_name} - 2) ** 2
+    
+    session.complete(epoch=0, {metric_name}=val)
+    print(f"Trial {{trial.get('trial_number')}} complete: {param_name}={{val:.4f}} -> {metric_name}={{val:.4f}}")
+
+if __name__ == "__main__":
+    main()
+"""
+    worker_path = "quickstart_worker.py"
+    with open(worker_path, "w") as f:
+        f.write(worker_content)
+        
+    print(f"\nGenerated {yaml_path} and {worker_path}.")
+    
+    import yaml
+    from src.onboarding import init_study_from_manifest_dict
+    from src.manifest import validate_manifest
+    
+    with open(yaml_path) as f:
+        data = yaml.safe_load(f)
+        
+    errors, warnings = validate_manifest(data)
+    if errors:
+        print("\n✗ Unexpected validation error in generated manifest:")
+        for e in errors:
+            print(f"✗ {e}")
+        sys.exit(1)
+        
+    result = init_study_from_manifest_dict(data, force=False)
+    print(result)
+    
+    print(f"\n==================================================")
+    print("🚀 SUCCESS! Your dummy study is registered.")
+    print("Run the following command in another terminal:")
+    print(f"\n    python quickstart_worker.py")
+    print(f"==================================================\n")
+    sys.exit(0)
+
 def cmd_init(args):
     import yaml
     from src.onboarding import init_study_from_manifest_dict
+    from src.manifest import validate_manifest
 
     path = args.manifest
     try:
@@ -357,6 +466,13 @@ def cmd_init(args):
             data = yaml.safe_load(f)
     except Exception as e:
         print(f"✗ Error reading manifest: {e}")
+        sys.exit(1)
+
+    errors, warnings = validate_manifest(data)
+    if errors:
+        for e in errors:
+            print(f"✗ {e}")
+        print(f"\n{len(errors)} error(s) found during validation. Fix them and re-try init.")
         sys.exit(1)
 
     init_db()
@@ -892,6 +1008,9 @@ def main():
     p_validate = subparsers.add_parser("validate", help="Check manifest for errors")
     p_validate.add_argument("manifest", help="Path to manifest YAML file")
 
+    # Quickstart
+    p_quickstart = subparsers.add_parser("quickstart", help="Interactive wizard to generate and initialize a dummy study")
+
     # Init
     p_init = subparsers.add_parser("init", help="Validate + register study")
     p_init.add_argument("manifest", help="Path to manifest YAML file")
@@ -931,6 +1050,8 @@ def main():
         cmd_flag_review(args)
     elif args.command == "validate":
         cmd_validate(args)
+    elif args.command == "quickstart":
+        cmd_quickstart(args)
     elif args.command == "init":
         cmd_init(args)
     elif args.command == "manifest":

@@ -8,10 +8,12 @@ codebase work for:
   - the original 2-obj [minimize, maximize] setup (fully backward-compatible)
 """
 
-from typing import Any, List, Optional, Sequence
+from typing import List, Optional, Sequence
+import math
 from optuna.study import StudyDirection
-from optuna.trial import FrozenTrial
+from optuna.trial import FrozenTrial, TrialState
 
+TERMINAL_STATES = (TrialState.COMPLETE, TrialState.PRUNED, TrialState.FAIL)
 
 # ---------------------------------------------------------------------------
 # Objective-index discovery (look at directions, not hard-coded positions)
@@ -186,3 +188,20 @@ def _trial_metric_snapshot(
         "loss_eval_fixed": bce_eval_fixed,
         "latest_epoch": latest_epoch,
     }
+
+def get_eval_attr_names(ev: dict) -> tuple[str, str]:
+    """Return the score and loss user-attribute names for fixed-eval tracking."""
+    score_fixed_key = ev.get("fixed_score_attr", ev.get("fixed_dice_attr", "score_eval_fixed"))
+    loss_fixed_key = ev.get("fixed_loss_attr", ev.get("fixed_bce_attr", "loss_eval_fixed"))
+    return score_fixed_key, loss_fixed_key
+
+def get_completed_trials(study) -> List[FrozenTrial]:
+    """Return all COMPLETE trials in the study."""
+    return [t for t in study.trials if t.state == TrialState.COMPLETE]
+
+def has_invalid_metrics(**kwargs) -> Optional[str]:
+    """Check if any of the provided metrics are NaN or Inf. Returns the name of the first invalid metric."""
+    for val_name, val in kwargs.items():
+        if val is not None and (math.isnan(val) or math.isinf(val)):
+            return val_name
+    return None
