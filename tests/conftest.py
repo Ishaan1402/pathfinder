@@ -8,9 +8,10 @@ import os
 import sys
 import tempfile
 import uuid
+from pathlib import Path
 
 # 1. Project root on sys.path.
-_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_PROJECT_ROOT = str(Path(__file__).resolve().parent.parent)
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
@@ -19,7 +20,8 @@ if _PROJECT_ROOT not in sys.path:
 if "HPO_DATABASE_URL" not in os.environ:
     _fd, _TEST_DB_PATH = tempfile.mkstemp(suffix=".db", prefix="hpo_pytest_")
     os.close(_fd)
-    os.environ["HPO_DATABASE_URL"] = f"sqlite:///{_TEST_DB_PATH}"
+    test_db = Path(_TEST_DB_PATH).resolve().as_posix()
+    os.environ["HPO_DATABASE_URL"] = f"sqlite:///{test_db}"
 
     import atexit
 

@@ -55,7 +55,11 @@ class TrialSession:
         study_name: Optional[str] = None,
         timeout: int = DEFAULT_TIMEOUT,
     ):
-        self.broker_url = broker_url or os.getenv("HPO_BROKER_URL") or "http://localhost:8000"
+        self.broker_url = broker_url or os.getenv("HPO_BROKER_URL")
+        if not self.broker_url:
+            raise ValueError(
+                "broker_url is required (pass it explicitly or set HPO_BROKER_URL)."
+            )
         self.study_name = study_name or os.getenv("HPO_STUDY_NAME")
         self.timeout = timeout
 
