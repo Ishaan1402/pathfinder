@@ -178,7 +178,7 @@ def build_compacted_packet(
 ) -> Dict[str, Any]:
     """Assembles a highly compressed, token-efficient HPO review packet."""
     from .hpo_coordinator import (
-        _fanova_importances,
+        get_fanova_importances,
         pareto_trial_numbers_deploy_aware,
         check_boundary_hits,
         compute_fidelity_durations,
@@ -201,7 +201,10 @@ def build_compacted_packet(
     trial_bins = bin_trials(study, db_metrics, search_space)
     
     # 2. fANOVA Importances (Top 5 only)
-    raw_importances = _fanova_importances(study, config)
+    try:
+        raw_importances = get_fanova_importances(study, config)
+    except Exception as e:
+        raw_importances = {}
     sorted_importances = sorted(raw_importances.items(), key=lambda x: x[1], reverse=True)[:5]
     top_fanova = dict(sorted_importances)
     

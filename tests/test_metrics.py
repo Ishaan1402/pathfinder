@@ -20,7 +20,7 @@ from src.metrics import (
     loss_objective_index,
     score_objective_index,
 )
-from src.hpo_coordinator import _fanova_importances, get_best_primary_score
+from src.hpo_coordinator import get_fanova_importances, get_best_primary_score
 
 
 def _complete_trial(study, values, params=None):
@@ -86,7 +86,7 @@ class TestMetrics(unittest.TestCase):
         )
         _complete_trial(study, [0.5, 0.3], {"x": 0.1})
         _complete_trial(study, [0.4, 0.2], {"x": 0.9})
-        result = _fanova_importances(study, {})
+        result = get_fanova_importances(study, {})
         self.assertEqual(result, {})
 
     def test_fanova_importances_mocked_score_index_none(self):
@@ -94,7 +94,7 @@ class TestMetrics(unittest.TestCase):
         _complete_trial(study, [0.5, 0.6])
         _complete_trial(study, [0.4, 0.7])
         with patch("src.hpo_coordinator.score_objective_index", return_value=None):
-            result = _fanova_importances(study, {})
+            result = get_fanova_importances(study, {})
         self.assertEqual(result, {})
 
 

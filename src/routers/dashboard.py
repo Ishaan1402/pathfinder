@@ -1,6 +1,7 @@
 import hmac
 import json
 import traceback
+import logging
 from typing import Optional, Dict, Any, List
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -8,7 +9,7 @@ from pydantic import BaseModel
 import optuna
 from optuna.trial import TrialState
 
-from ..db_manager import get_db_session
+from ..db_manager import get_db_session, get_or_create_study_status
 from ..settings import settings
 from ..schema import (
     StudyStatus,
@@ -54,8 +55,9 @@ from ..hpo_coordinator import (
     validate_review_fields,
     mark_review_applied,
     flag_study_review,
-    load_study_cards,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api")
 
@@ -150,8 +152,8 @@ def api_get_study_health(study_name: str):
                 trials_evaluated = count_evaluated_trials(study)
                 if status.nudge_dismissed_trials == trials_evaluated:
                     is_dismissed = True
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Failed to load study {study_name} when checking dismissal status: {e}")
             return {
                 "study_name": study_name,
                 "health_tier": status.health_tier,
@@ -366,8 +368,8 @@ def api_study_details(study_name: str):
                 try:
                     w_id = r.config_key.replace("worker_env:", "")
                     worker_envs[w_id] = json.loads(r.config_value)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(f"Failed to parse worker_env {w_id}: {e}")
 
         hpo_config = load_hpo_config(study_name)
         space = load_search_space(study_name)
@@ -467,32 +469,9 @@ def api_fanova(study_name: str):
         complete_trials = [t for t in study.trials if t.state == TrialState.COMPLETE]
         if len(complete_trials) < 2:
             return {"success": False, "message": "Need at least 2 completed trials for importance analysis"}
-            
-        importances = {}
-        if len(study.directions) > 1:
-            score_idx = score_objective_index(study)
-            if score_idx is not None:
-                importances = optuna.importance.get_param_importances(
-                    study,
-                    target=lambda t, _idx=score_idx: t.values[_idx] if (t.values and len(t.values) > _idx) else None,
-                    evaluator=optuna.importance.FanovaImportanceEvaluator()
-                )
-        else:
-            importances = optuna.importance.get_param_importances(
-                study,
-                evaluator=optuna.importance.FanovaImportanceEvaluator()
-            )
-            
-        config = load_hpo_config()
-        aliases = config.get("legacy_param_aliases", {})
-        display: Dict[str, float] = {}
-        for param, value in importances.items():
-            canonical = aliases.get(param, param)
-            label = param_display_name(canonical, config)
-            if label in display:
-                display[label] = max(display[label], value)
-            else:
-                display[label] = value
+        config = load_hpo_config(study_name)
+        from ..hpo_coordinator import get_fanova_importances
+        display = get_fanova_importances(study, config)
 
         return {"success": True, "importances": display}
     except Exception as e:
@@ -560,10 +539,7 @@ def api_dismiss_coordinator_nudge(study_name: str):
         trials_evaluated = count_evaluated_trials(study)
         
         with get_db_session() as session:
-            status = session.query(StudyStatus).filter_by(study_name=study_name).first()
-            if not status:
-                status = StudyStatus(study_name=study_name)
-                session.add(status)
+            status = get_or_create_study_status(session, study_name)
             status.nudge_dismissed_trials = trials_evaluated
             session.commit()
             
