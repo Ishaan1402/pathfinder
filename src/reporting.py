@@ -285,8 +285,8 @@ def handle_api_complete_trial(req: CompleteTrialRequest):
 
         final_score = req.score
         final_loss = req.loss
-        final_score_fixed = req.score_eval_fixed
-        final_loss_fixed = req.loss_eval_fixed
+        final_score_fixed = getattr(req, "score_eval_fixed", None)
+        final_loss_fixed = getattr(req, "loss_eval_fixed", None)
 
         hpo_config = load_hpo_config(req.study_name)
         ev = hpo_config.get("eval_protocol", {})
@@ -377,9 +377,9 @@ def handle_api_complete_trial(req: CompleteTrialRequest):
 
         with get_db_session() as session:
             detected_tag = None
-            if math.isnan(final_score) or math.isnan(final_loss):
-                detected_tag = "NAN_LOSS"
-            elif math.isinf(final_score) or math.isinf(final_loss):
+            if (final_score is not None and math.isnan(final_score)) or (final_loss is not None and math.isnan(final_loss)):
+                detected_tag = "NaN / Diverged"
+            elif (final_score is not None and math.isinf(final_score)) or (final_loss is not None and math.isinf(final_loss)):
                 detected_tag = "INF_GRADIENT"
             elif req.oom_triggered:
                 detected_tag = "OOM"
