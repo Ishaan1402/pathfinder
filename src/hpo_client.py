@@ -300,8 +300,8 @@ class TrialSession:
     def report_epoch(
         self,
         epoch: int,
-        score: float,
-        loss: float,
+        score: Optional[float] = None,
+        loss: Optional[float] = None,
         score_eval_fixed: Optional[float] = None,
         loss_eval_fixed: Optional[float] = None,
         gpu_memory: Optional[float] = None,
@@ -349,8 +349,8 @@ class TrialSession:
     def complete(
         self,
         epoch: int,
-        score: float,
-        loss: float,
+        score: Optional[float] = None,
+        loss: Optional[float] = None,
         weights_path: str = "",
         history: Optional[List[Dict[str, Any]]] = None,
         state: str = "COMPLETE",
