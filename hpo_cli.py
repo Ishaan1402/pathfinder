@@ -477,6 +477,22 @@ def cmd_init(args):
 
     init_db()
 
+    if args.force:
+        study_name = data.get("study_name")
+        study_exists = False
+        try:
+            import optuna
+            from src.db_manager import DATABASE_URL
+            optuna.load_study(study_name=study_name, storage=DATABASE_URL)
+            study_exists = True
+        except KeyError:
+            pass
+        if study_exists:
+            ans = input(f"Study '{study_name}' already exists. Are you sure you want to delete it? [y/N]: ").strip().lower()
+            if ans != 'y':
+                print("Aborted.")
+                sys.exit(0)
+
     try:
         result = init_study_from_manifest_dict(data, force=args.force)
         print(result)
@@ -725,6 +741,11 @@ def cmd_import(args):
         if not args.force:
             print(f"✗ Error: Study '{new_study_name}' already exists. Use --force to overwrite.")
             sys.exit(1)
+            
+        ans = input(f"Study '{new_study_name}' already exists. Are you sure you want to delete it? [y/N]: ").strip().lower()
+        if ans != 'y':
+            print("Aborted.")
+            sys.exit(0)
             
         print(f"Deleting existing study '{new_study_name}' as --force was specified...")
         optuna.delete_study(study_name=new_study_name, storage=DATABASE_URL)
