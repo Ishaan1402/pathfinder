@@ -409,7 +409,7 @@ worker:
         
     metric_name = "loss" if direction == "minimize" else "score"
     worker_content = f"""import sys
-from hpo_client import TrialSession
+from src.hpo_client import TrialSession
 
 def main():
     session = TrialSession(broker_url="http://localhost:8000", study_name="{study_name}")

@@ -10,7 +10,7 @@ Setup:
     python worker_minimal.py
 """
 import sys
-from hpo_client import TrialSession
+from src.hpo_client import TrialSession
 
 NUM_EPOCHS = 15
 
