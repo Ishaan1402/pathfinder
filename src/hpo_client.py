@@ -169,8 +169,7 @@ class TrialSession:
         return headers
 
     def _is_retryable(self, e: Exception) -> bool:
-        import requests
-        if isinstance(e, requests.HTTPError) and e.response is not None:
+        if hasattr(e, "response") and e.response is not None:
             status = e.response.status_code
             return status in (408, 429) or status >= 500
         # Network-level exceptions (timeouts, connection refused, etc.) are always retryable
@@ -194,7 +193,6 @@ class TrialSession:
                 resp.raise_for_status()
                 return resp.json()
             except requests.RequestException as e:
-                import requests
                 if isinstance(e, requests.exceptions.ConnectionError) and "Connection refused" in str(e):
                     raise RuntimeError(f"Cannot reach HPO broker at {self.broker_url}. Is the server running?") from e
                 
@@ -220,7 +218,6 @@ class TrialSession:
                 resp.raise_for_status()
                 return resp.json()
             except requests.RequestException as e:
-                import requests
                 if isinstance(e, requests.exceptions.ConnectionError) and "Connection refused" in str(e):
                     raise RuntimeError(f"Cannot reach HPO broker at {self.broker_url}. Is the server running?") from e
                 
@@ -303,8 +300,8 @@ class TrialSession:
     def report_epoch(
         self,
         epoch: int,
-        score: float,
-        loss: float,
+        score: Optional[float] = None,
+        loss: Optional[float] = None,
         score_eval_fixed: Optional[float] = None,
         loss_eval_fixed: Optional[float] = None,
         gpu_memory: Optional[float] = None,
@@ -352,8 +349,8 @@ class TrialSession:
     def complete(
         self,
         epoch: int,
-        score: float,
-        loss: float,
+        score: Optional[float] = None,
+        loss: Optional[float] = None,
         weights_path: str = "",
         history: Optional[List[Dict[str, Any]]] = None,
         state: str = "COMPLETE",

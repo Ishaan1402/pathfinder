@@ -1,0 +1,11 @@
+
+services:
+  broker:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./hpo_studies.db:/app/hpo_studies.db
+    environment:
+      - HPO_DATABASE_URL=sqlite:///hpo_studies.db
+      - HPO_DEBUG=0
