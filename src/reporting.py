@@ -8,7 +8,7 @@ from optuna.trial import TrialState
 from src.db_manager import get_db_session, get_or_create_study_status
 from src.schema import TrialResult, AgentReasoningLog, StudyStatus, TrialLease
 from src.hpo_config import load_hpo_config
-from src.metrics import get_score, loss_objective_index, score_objective_index, TERMINAL_STATES, has_invalid_metrics
+from src.metrics import get_score, get_loss, loss_objective_index, score_objective_index, TERMINAL_STATES, has_invalid_metrics
 from src.hpo_coordinator import compute_health_tier, write_ide_status_file, backfill_review_outcomes
 from src.leases import _lease_is_owned, delete_lease_by_trial_id
 from src.pruning import _epoch_composite_score, _pruning_peer_trials
@@ -206,12 +206,17 @@ def handle_api_report_epoch(req: ReportEpochRequest):
         
         composite_score = _epoch_composite_score(study, trial_obj, req.epoch, ev)
         if composite_score is None:
-            composite_score = prune_score - prune_loss
+            s_val = prune_score if prune_score is not None else 0.0
+            l_val = prune_loss if prune_loss is not None else 0.0
+            composite_score = s_val - l_val
 
         prune_min_epoch = int(ev.get("prune_min_epoch", 5))
 
         if len(study.directions) == 1:
-            study._storage.set_trial_intermediate_value(trial_obj._trial_id, req.epoch, prune_score)
+            intermediate_val = prune_loss if study.directions[0] == optuna.study.StudyDirection.MINIMIZE else prune_score
+            if intermediate_val is None:
+                intermediate_val = 0.0
+            study._storage.set_trial_intermediate_value(trial_obj._trial_id, req.epoch, intermediate_val)
             should_prune = study.pruner.prune(study, trial_obj)
         else:
             study._storage.set_trial_intermediate_value(trial_obj._trial_id, req.epoch, composite_score)
@@ -356,6 +361,8 @@ def handle_api_complete_trial(req: CompleteTrialRequest):
         else:
             if t_state == TrialState.COMPLETE:
                 if len(study.directions) > 1:
+                    if final_score is None or final_loss is None:
+                        raise HTTPException(status_code=400, detail="Both score and loss must be provided to complete a dual-objective study.")
                     loss_idx = loss_objective_index(study)
                     score_idx = score_objective_index(study)
                     values = [0.0] * len(study.directions)
@@ -366,8 +373,12 @@ def handle_api_complete_trial(req: CompleteTrialRequest):
                     study.tell(trial_obj.number, values)
                 else:
                     if study.directions[0] == optuna.study.StudyDirection.MINIMIZE:
+                        if final_loss is None:
+                            raise HTTPException(status_code=400, detail="Trial completion for a minimize study requires 'loss'.")
                         study.tell(trial_obj.number, final_loss)
                     else:
+                        if final_score is None:
+                            raise HTTPException(status_code=400, detail="Trial completion for a maximize study requires 'score'.")
                         study.tell(trial_obj.number, final_score)
             else:
                 try:
@@ -383,7 +394,7 @@ def handle_api_complete_trial(req: CompleteTrialRequest):
                 detected_tag = "INF_GRADIENT"
             elif req.oom_triggered:
                 detected_tag = "OOM"
-            elif req.epoch <= 1 and final_score <= 0:
+            elif req.epoch <= 1 and final_score is not None and final_score <= 0:
                 detected_tag = "DIVERGED"
 
             metric = TrialResult(
@@ -430,15 +441,28 @@ def handle_api_complete_trial(req: CompleteTrialRequest):
             delete_lease_by_trial_id(session, req.trial_id)
             session.commit()
 
+        is_minimize_only = len(study.directions) == 1 and study.directions[0] == optuna.study.StudyDirection.MINIMIZE
+
         try:
             prior_trials = [t for t in study.trials if t.number < trial_obj.number and t.state == TrialState.COMPLETE]
             best_prior_score = 0.0
+            
             if prior_trials:
-                scores = [get_score(t, study) for t in prior_trials]
-                scores = [s for s in scores if s is not None]
-                best_prior_score = max(scores) if scores else 0.0
+                if is_minimize_only:
+                    losses = [get_loss(t, study) for t in prior_trials]
+                    losses = [l for l in losses if l is not None]
+                    best_prior_score = min(losses) if losses else 0.0
+                else:
+                    scores = [get_score(t, study) for t in prior_trials]
+                    scores = [s for s in scores if s is not None]
+                    best_prior_score = max(scores) if scores else 0.0
 
-            actual_improvement = final_score - best_prior_score
+            if is_minimize_only:
+                safe_final_loss = final_loss if final_loss is not None else 0.0
+                actual_improvement = best_prior_score - safe_final_loss
+            else:
+                safe_final_score = final_score if final_score is not None else 0.0
+                actual_improvement = safe_final_score - best_prior_score
             with get_db_session() as session:
                 reasoning_log = session.query(AgentReasoningLog).filter_by(trial_id=req.trial_id).first()
                 if reasoning_log:
@@ -468,10 +492,14 @@ def handle_api_complete_trial(req: CompleteTrialRequest):
         completed_scores = []
         for t in study.trials:
             if t.state == TrialState.COMPLETE:
-                s = get_score(t, study)
+                s = get_loss(t, study) if is_minimize_only else get_score(t, study)
                 if s is not None:
                     completed_scores.append(s)
-        best_score = max(completed_scores) if completed_scores else 0.0
+        
+        if is_minimize_only:
+            best_score = min(completed_scores) if completed_scores else 0.0
+        else:
+            best_score = max(completed_scores) if completed_scores else 0.0
 
         return {
             "success": True,
