@@ -5,46 +5,64 @@
 [![Optuna](https://img.shields.io/badge/Optuna-Tuning-1E90FF?style=flat-square)](https://optuna.org/)
 [![SQLite](https://img.shields.io/badge/SQLite-003B57?style=flat-square&logo=sqlite&logoColor=white)](https://www.sqlite.org/)
 [![MCP](https://img.shields.io/badge/MCP-Model_Context_Protocol-orange?style=flat-square)](https://modelcontextprotocol.io/)
-[![Build Status](https://github.com/Ishaan1402/pathfinder/actions/workflows/ci.yml/badge.svg)](https://github.com/Ishaan1402/pathfinder/actions)
+[![Build Status](https://github.com/Ishaan1402/pathfinder/actions/workflows/integration.yml/badge.svg)](https://github.com/Ishaan1402/pathfinder/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
 
-A decoupled hyperparameter optimization (HPO) framework that separates the deterministic optimizer from episodic AI reviews. Train workers run autonomously without ever blocking on an LLM. Optimizers run fast. Humans (or AI agents in your IDE) review results periodically and decide when to adjust the search space.
+A layered hyperparameter optimization (HPO) framework that keeps quick Optuna suggestions seperate from episodic AI reviews. Workers run training script loops autonomously updating with optimized HPs without being blocked by LLM evaluation. This leaves you (or agents in your IDE) to review results periodically and decide when to adjust the search space or overarching strategy.
 
-**Designed for:** ML researchers and engineers tuning deep learning models on their own infrastructure (local GPU, Colab, cloud VMs). Use it as a reference for the bridge-crack U-Net project, or adapt the templates for your own training script.
+  **Designed for:** ML researchers and students tuning deep learning models on their own infrastructure (local GPU, Colab, cloud VMs). Connect your existing training loop in just 4 lines of code — see For Your Own Project below.
 
 ## Why Pathfinder?
 
-**Problem:** Traditional HPO frameworks either require workers to wait for an optimizer, or they add LLM reasoning that introduces latency into every training loop. You end up trading off between speed and intelligence.
+**Problem:** Traditional HPO frameworks execute fast, but they operate entirely within fixed boundaries. If your initial search space is poorly posed or if specific hyperparameter combinations trigger hardware failures (like CUDA OOMs or gradient explosions), a traditional optimizer will blindly burn through your GPU budget until it hits its limit. Fixing this requires the researcher to manually monitor charts, context-switch out of the IDE, and rewrite configuration files by hand.
 
 **Solution:** Three independent layers:
 
-- **Broker (Optuna TPE)**: Fast, deterministic suggestion engine. Never calls an LLM. Workers hit this endpoint and move on.
-- **Worker**: Train autonomously. Report metrics incrementally. Handles pruning, OOM, checkpointing. Never waits.
+- **Broker (Optuna TPE)**: Quick, deterministic suggestion engine. Hyperparameter suggestions and pruning happen in <10ms. Workers access this endpoint and continue training.
+- **Worker**: Train autonomously in loops. Report metrics incrementally. Handles pruning (early stoppage), OOM, checkpointing. 
 - **Coordinator (You + Optional LLM)**: Run episodic reviews when *you* decide. Inspect trial history, check search health, propose bounds changes. AI agents (Claude, Cursor) can run reviews via MCP tools.
 
-All state lives in **SQLite**—no config files, no in-memory state. This makes it easy to resume reviews, audit decisions, and sync across machines.
+All state lives in **SQLite** making it easy to resume reviews, audit decisions, and sync across machines.
 
 ## Quick Start
 
-### Option 1: Local GPU
+### Step 1: Start the Broker
+
+The broker manages the study state and serves the dashboard. You can run it via Docker or Python.
+
+**Option A: Docker (Zero-Install)**
+
+```bash
+docker-compose up -d
+# Dashboard: http://127.0.0.1:8000
+```
+
+**Option B: Local Python (3.10+)**
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-
-# Terminal 1: Start broker
 python broker.py --daemon
 # Dashboard: http://127.0.0.1:8000
-
-# Terminal 2: Run worker
-HPO_BROKER_URL=http://localhost:8000 HPO_STUDY_NAME=test_study python simulators/training_worker.py
 ```
 
-### Option 2: Remote Workers (Colab / Cloud GPU)
+### Step 2: Connect Your Workers
+
+Workers run your training loops. They can be on the same machine or remote.
+
+**Local Workers (Same Machine)**
 
 ```bash
-# Terminal 1: Start broker with tunnel + auth
+# Replace 'train.py' with your own training script
+HPO_BROKER_URL=http://localhost:8000 HPO_STUDY_NAME=my_study python train.py
+```
+
+**Remote Workers (Colab / Cloud GPU)**
+To connect remote workers to your local broker, use a tunnel:
+
+```bash
+# Local Terminal: Start broker with tunnel + auth
 export HPO_SECRET_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
 
 # ngrok (auto-generates URL)
@@ -55,15 +73,26 @@ python broker.py --daemon --tunnel-provider cloudflare --tunnel-url https://your
 
 # Prints: 🔥 Remote broker URL established: https://...
 
-# Terminal 2 (on remote): Set environment and run worker
+# Remote Server Terminal: Set environment and run your worker
 export HPO_BROKER_URL="https://..."
 export HPO_SECRET_TOKEN="<your-token>"
-python colab_worker.py
+python train.py
 ```
 
-### Option 3: IDE Integration (Optional)
+### Step 3: Agent Integration (Optional)
 
-Point Claude Code, Cursor, or Antigravity to the MCP server for agent-driven onboarding and reviews. See **IDE Setup** below.
+Point Claude Code, Cursor, Antigravity, etc to the MCP server for agent-driven onboarding and reviews. See **IDE Setup** below.
+
+### Environment Variables Reference
+
+Pathfinder supports the following optional environment variables for users:
+
+- `HPO_DATABASE_URL`: SQLite connection string (default: `sqlite:///hpo_studies.db`).
+- `HPO_BROKER_URL`: The URL where the broker is running (e.g. `http://localhost:8000`). Required by workers.
+- `HPO_STUDY_NAME`: The active study name. Overrides what is passed in code.
+- `HPO_SECRET_TOKEN`: Bearer token for securing broker endpoints in remote deployments.
+- `HPO_DEBUG`: Set to `1` to enable verbose debug logging in the broker.
+- `HPO_SPARKLINES`: Set to `1` in the worker to print a unicode performance curve on completion.
 
 ---
 
@@ -71,18 +100,18 @@ Point Claude Code, Cursor, or Antigravity to the MCP server for agent-driven onb
 
 ### Deterministic Optimizer (Hot Path)
 
-- **TPE Sampler**: Probability-based hyperparameter suggestions (beats grid search)
-- **ASHA Pruning**: Stop underperforming trials early to save GPU time
-- **Multi-Objective Pareto**: Optimize for both Dice score *and* loss simultaneously
-- **fANOVA Importances**: Which hyperparams actually matter? (→ guides your reviews)
-- **No LLM calls**: Workers never block. Suggest latency is <10ms.
+- **Tree-structured Parzen Estimator Sampler**: Probability-based hyperparameter suggestions (beats grid search)
+- **ASHA Pruning**: Cuts underperforming trials early to save GPU time
+- **Single or Dual-Objective**: Optimize a single target, or map a Pareto front between one 'maximize' and one 'minimize' metric (e.g., accuracy vs. latency)
+  - *(Example: An [image segmentation model](https://github.com/Ishaan1402/crack-seg#crack-seg) could map a Pareto front to maximize Dice Score while minimizing BCE Loss).*
+- **fANOVA Importances**: Identifies which hyperparams actually matter to further guide your strategy
 
 ### Episodic Coordinator (You Decide When)
 
 - Dashboard shows health warnings (nudges to review, never auto-reviews)
-- 7-step review procedure: inspect data → rate health → adjust bounds if needed → submit audit trail
-- Search space proposals staged for approval before taking effect
-- Coordinator accuracy tracked: your reviews' forecasted score gains vs. measured deltas
+- 7-step review procedure: retrieve telemetry → evaluate fANOVA → safety/OOM check → accuracy self-regulation → propose bound adjustments → submit audit trail → generate model card
+- Search space proposals are staged, requiring your explicit approval before taking effect
+- Coordinator accuracy tracks your reviews' forecasted score improvements vs. measured deltas
 - Optional LLM integration (Claude, Gemini, OpenAI) for automatic reviews
 
 ### State Machine (SQLite)
@@ -92,14 +121,18 @@ All configuration, trials, reviews, and metadata live in `hpo_studies.db`:
 - Active search space (not on disk)
 - Trial results + VRAM telemetry
 - Coordinator review history with citations
-- Study health tier and dismissal states
+- Study health tier
 - Generated model cards
 
 ---
 
-## For Your Own Project
+## For Your Own Project (Onboarding)
 
-If you cloned this to tune your model (not the bridge-crack reference):
+If you cloned this to tune your own model, the easiest way to start is by having an AI Agent (like Cursor, Claude Code, or Antigravity) write the manifest for you. 
+
+After setting up the Pathfinder MCP server, simply open your training script and tell your agent something like **"help me wire this training script up to Pathfinder."**. The agent will read your script, identify tunable hyperparameters, and automatically draft the manifest.
+
+Otherwise, you can onboard manually:
 
 1. **Write a manifest** (`train.hpo.yaml`):
   ```yaml
@@ -126,20 +159,25 @@ If you cloned this to tune your model (not the bridge-crack reference):
    python hpo_cli.py validate train.hpo.yaml
    python hpo_cli.py init train.hpo.yaml
   ```
-3. **Write a worker** (use `templates/worker_minimal.py` as template):
+3. **Update your training script** (`train.py`):
+  Instead of hardcoding your hyperparameters, ask the Pathfinder broker for them at the start of your script, and report your loss at the end of each epoch. FastAPI endpoints will facilitate communication between Optuna and your training loop to auto-update inputs based on each trial's iterative output.
   ```python
    from src.hpo_client import TrialSession
 
+   # 1. Connect to broker and get parameters
    session = TrialSession(broker_url="http://localhost:8000", study_name="my_study")
    trial = session.suggest()
+   learning_rate = trial["params"]["learning_rate"]
 
    for epoch in range(epochs):
-       accuracy, loss = train_one_epoch(trial["params"])
-       should_prune = session.report_epoch(epoch, score=accuracy, loss=loss)
-       if should_prune:
-           break
+       loss = train_one_epoch(lr=learning_rate)
 
-   session.complete(epoch, score=accuracy, loss=loss, state="COMPLETE")
+       # 2. Report metrics (Pathfinder handles pruning automatically)
+       if session.report_epoch(epoch, loss=loss):
+           break # Trial was pruned
+
+   # 3. Mark completion
+   session.complete(epoch, loss=loss, state="COMPLETE")
   ```
 4. **Run on your GPU** (set env vars first):
   ```bash
@@ -180,7 +218,11 @@ Add to your MCP config (`~/.config/claudecode/mcp_config.json` or similar):
 }
 ```
 
-Then tell any agent:
+### Other MCP Clients (OpenCode, etc.)
+
+Pathfinder is compliant with the Model Context Protocol standard. You can integrate it with any other MCP-compatible IDE or agent using its standard configuration method, pointing it to `python3 hpo_mcp_server.py`.
+
+Then tell your agent:
 
 - **"integrate HPO"** → agent drafts manifest, validates, registers study
 - **"run a coordinator review"** → agent fetches study data, rates health, proposes bounds changes
@@ -194,7 +236,7 @@ See [AGENTS.md](AGENTS.md) for the full procedure.
 ```
 ┌─────────────────────────────────────────┐
 │  You + Optional IDE Agent               │
-│  - Manual reviews or @pathfinder tools  │
+│  - Manual review or @pathfinder tools   │
 │  - Dashboard inspection                 │
 └─────────────────────────────────────────┘
               ↕ MCP + HTTP
@@ -250,9 +292,9 @@ pytest tests/ -q
 
 ---
 
-## Reference: Bridge Crack Segmentation (bridge-crack repo)
+## Reference: crack-seg
 
-This Pathfinder instance was initially tuned for [crack-seg](https://github.com/Ishaan1402/crack-seg#crack-seg), a **U-Net pixel-level crack detection model** on high-res UAV bridge imagery. See [colab_worker.py](colab_worker.py) for the full reference implementation (dataset download, model setup, training loop).
+This Pathfinder instance was initially tuned for [crack-seg](https://github.com/Ishaan1402/crack-seg#crack-seg), a **U-Net pixel-level segmentation model** trained on high-res UAV bridge imagery. See [colab_worker.py](colab_worker.py) for the full reference implementation (dataset download, model setup, training loop).
 
 **Don't modify `colab_worker.py`** unless you're maintaining the bridge-crack project. Cloners should use `templates/worker_minimal.py` instead.
 
