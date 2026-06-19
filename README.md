@@ -10,11 +10,23 @@
 
 A layered hyperparameter optimization (HPO) framework that keeps quick Optuna suggestions seperate from episodic AI reviews. Workers run training script loops autonomously updating with optimized HPs without being blocked by LLM evaluation. This leaves you (or agents in your IDE) to review results periodically and decide when to adjust the search space or overarching strategy.
 
-  **Designed for:** ML researchers and students tuning deep learning models on their own infrastructure (local GPU, Colab, cloud VMs). Connect your existing training loop in just 4 lines of code — see For Your Own Project below.
+<table border="0">
+  <tr>
+    <td width="67%" valign="top">
+      <img src="docs/images/dashboard.png" alt="Pathfinder Dashboard" />
+    </td>
+    <td width="33%" valign="top">
+      <img src="docs/images/pathways_plot.png" alt="Hyperparameter Pathways Plot" style="margin-bottom: 6px;" />
+      <img src="docs/images/pruning_timeline.png" alt="ASHA Pruning Timeline" />
+    </td>
+  </tr>
+</table>
+
+  **Designed for:** ML researchers and students tuning deep learning models on their own infrastructure (local GPU, Colab, cloud VMs). Connect your existing training loop in just 4 lines of code — see [For Your Own Project](#onboarding-your-own-project) below.
 
 ## Why Pathfinder?
 
-**Problem:** Traditional HPO frameworks execute fast, but they operate entirely within fixed boundaries. If your initial search space is poorly posed or if specific hyperparameter combinations trigger hardware failures (like CUDA OOMs or gradient explosions), a traditional optimizer will blindly burn through your GPU budget until it hits its limit. Fixing this requires the researcher to manually monitor charts, context-switch out of the IDE, and rewrite configuration files by hand.
+**Problem:** Traditional HPO frameworks execute fast, but they typically operate within fixed boundaries. If your initial search space is poorly posed or if specific hyperparameter combinations trigger hardware failures (like CUDA OOMs or gradient explosions), a traditional optimizer will blindly burn through your GPU budget until it hits its limit. Fixing this requires the researcher to manually monitor charts, context-switch out of the IDE, and rewrite configuration files by hand.
 
 **Solution:** Three independent layers:
 
@@ -51,7 +63,7 @@ python broker.py --daemon
 
 Workers run your training loops. They can be on the same machine or remote.
 
-**Local Workers (Same Machine)**
+**Local Workers on the same machine**
 
 ```bash
 # Replace 'train.py' with your own training script
@@ -81,7 +93,7 @@ python train.py
 
 ### Step 3: Agent Integration (Optional)
 
-Point Claude Code, Cursor, Antigravity, etc to the MCP server for agent-driven onboarding and reviews. See **IDE Setup** below.
+Point Claude Code, Cursor, Antigravity, etc to the MCP server for agent-driven onboarding and reviews. See [IDE Setup](#ide-setup-agent-driven-onboarding--reviews) below.
 
 ### Environment Variables Reference
 
@@ -92,13 +104,13 @@ Pathfinder supports the following optional environment variables for users:
 - `HPO_STUDY_NAME`: The active study name. Overrides what is passed in code.
 - `HPO_SECRET_TOKEN`: Bearer token for securing broker endpoints in remote deployments.
 - `HPO_DEBUG`: Set to `1` to enable verbose debug logging in the broker.
-- `HPO_SPARKLINES`: Set to `1` in the worker to print a unicode performance curve on completion.
+- `HPO_SPARKLINES`: Set to `1` in the worker to print a unicode performance curve on trial completion.
 
 ---
 
 ## Core Features
 
-### Deterministic Optimizer (Hot Path)
+### Optuna Engine
 
 - **Tree-structured Parzen Estimator Sampler**: Probability-based hyperparameter suggestions (beats grid search)
 - **ASHA Pruning**: Cuts underperforming trials early to save GPU time
@@ -106,7 +118,7 @@ Pathfinder supports the following optional environment variables for users:
   - *(Example: An [image segmentation model](https://github.com/Ishaan1402/crack-seg#crack-seg) could map a Pareto front to maximize Dice Score while minimizing BCE Loss).*
 - **fANOVA Importances**: Identifies which hyperparams actually matter to further guide your strategy
 
-### Episodic Coordinator (You Decide When)
+### Tuning Coordinator
 
 - Dashboard shows health warnings (nudges to review, never auto-reviews)
 - 7-step review procedure: retrieve telemetry → evaluate fANOVA → safety/OOM check → accuracy self-regulation → propose bound adjustments → submit audit trail → generate model card
@@ -114,21 +126,21 @@ Pathfinder supports the following optional environment variables for users:
 - Coordinator accuracy tracks your reviews' forecasted score improvements vs. measured deltas
 - Optional LLM integration (Claude, Gemini, OpenAI) for automatic reviews
 
-### State Machine (SQLite)
+### Persistent Study State using SQLite
 
 All configuration, trials, reviews, and metadata live in `hpo_studies.db`:
 
-- Active search space (not on disk)
+- Active search space
 - Trial results + VRAM telemetry
-- Coordinator review history with citations
+- Coordinator review history
 - Study health tier
 - Generated model cards
 
 ---
 
-## For Your Own Project (Onboarding)
+## Onboarding Your Own Project
 
-If you cloned this to tune your own model, the easiest way to start is by having an AI Agent (like Cursor, Claude Code, or Antigravity) write the manifest for you. 
+If you cloned this to tune your own model, the easiest way to start is by having an agent (via Cursor, Claude Code, Antigravity, etc) write the manifest for you. 
 
 After setting up the Pathfinder MCP server, simply open your training script and tell your agent something like **"help me wire this training script up to Pathfinder."**. The agent will read your script, identify tunable hyperparameters, and automatically draft the manifest.
 
@@ -228,39 +240,6 @@ Then tell your agent:
 - **"run a coordinator review"** → agent fetches study data, rates health, proposes bounds changes
 
 See [AGENTS.md](AGENTS.md) for the full procedure.
-
----
-
-## Architecture
-
-```
-┌─────────────────────────────────────────┐
-│  You + Optional IDE Agent               │
-│  - Manual review or @pathfinder tools   │
-│  - Dashboard inspection                 │
-└─────────────────────────────────────────┘
-              ↕ MCP + HTTP
-┌─────────────────────────────────────────┐
-│  Broker (broker.py on localhost:8000)   │
-│  - Optuna TPE suggestion engine         │
-│  - Trial lifecycle (/api/suggest,       │
-│    /api/report_epoch, /api/complete)    │
-│  - Dashboard serving                    │
-└─────────────────────────────────────────┘
-              ↕ SQLite
-┌─────────────────────────────────────────┐
-│  hpo_studies.db                         │
-│  - All state (search space, trials,     │
-│    reviews, health, config)             │
-└─────────────────────────────────────────┘
-              ↕ HTTP
-┌─────────────────────────────────────────┐
-│  Training Workers (Any Box)             │
-│  - Colab, local GPU, cloud VM           │
-│  - 3-call client API                    │
-│  - Never blocks on optimizer or LLM     │
-└─────────────────────────────────────────┘
-```
 
 ---
 
