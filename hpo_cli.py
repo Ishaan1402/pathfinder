@@ -27,11 +27,9 @@ from src.schema import (
     StudyCard,
     TrialLease,
 )
-from src.health import compute_health_tier, compute_statistical_confidence, count_evaluated_trials
-from src.analytics import study_eval_insights, build_study_packet, load_study_cards
-from src.hpo_config import load_hpo_config
+from src.health import compute_health_tier, count_evaluated_trials
+from src.analytics import build_study_packet
 from src.suggest import load_study
-from src.search_space import load_search_space
 
 DEFAULT_STUDY = None
 
@@ -52,9 +50,7 @@ def cmd_status(args):
         print(f"Error loading study '{study_name}': {e}")
         sys.exit(1)
 
-    hpo_config = load_hpo_config(study_name)
     health_tier, health_reason = compute_health_tier(study, study_name)
-    insights = study_eval_insights(study, hpo_config)
 
     print("\n==================================================")
     print(f"📊 STUDY STATUS: {study_name}")

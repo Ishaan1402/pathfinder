@@ -1,13 +1,9 @@
-import os
-import json
-import datetime
-import hashlib
 from typing import Optional, Dict, Any, List
 from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP("Pathfinder")
 
-from src.db_manager import init_db, get_db_session, DATABASE_URL
+from src.db_manager import init_db
 
 # --- MCP TOOLS ---
 

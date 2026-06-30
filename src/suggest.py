@@ -1,7 +1,6 @@
-import time
 
 import json
-from typing import Optional, Dict, Any
+from typing import Optional
 from pydantic import BaseModel
 from fastapi import HTTPException
 import optuna
@@ -123,7 +122,6 @@ def _repair_categorical_param_indices(session: Session, study_name: str) -> int:
 
 def handle_api_suggest_trial(req: SuggestRequest):
     trial = None
-    start_time = time.time()
     try:
         # Load the study first to verify it exists. This raises a clean 404 if the study is uninitialized.
         study = load_study(req.study_name)
@@ -154,7 +152,6 @@ def handle_api_suggest_trial(req: SuggestRequest):
             and _trial_has_full_params(_worker_ready_params(t, space), space)
         ]
 
-        source = "recycled_running"
         if running_trials:
             running_trials.sort(key=lambda t: t.number)
             leased_to = req.worker_id or "anonymous"
@@ -172,7 +169,6 @@ def handle_api_suggest_trial(req: SuggestRequest):
 
         # 3. If no RUNNING trial is available, ask Optuna for a new one
         if not trial:
-            source = "new_trial"
             _enqueue_single_active_categoricals(study, space)
 
             # Optuna does not support narrowing categorical distributions after the first
@@ -235,9 +231,6 @@ def handle_api_suggest_trial(req: SuggestRequest):
                 status_code=500,
                 detail=f"Trial {trial.number} missing parameters {missing}. Expected {_expected_search_params(space)}.",
             )
-
-        end_time = time.time()
-        latency_ms = (end_time - start_time) * 1000
 
         config = hpo_config
         return {

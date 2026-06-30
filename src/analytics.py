@@ -7,7 +7,7 @@ import optuna
 from optuna.trial import TrialState
 
 from .db_manager import get_db_session, DATABASE_URL
-from .hpo_config import load_hpo_config, normalize_trial_params, param_display_name
+from .hpo_config import load_hpo_config, param_display_name
 from .metrics import get_score, get_loss, get_best_trial, score_objective_index, get_completed_trials, get_eval_attr_names
 from .schema import TrialResult, SystemConfiguration, CompactedPacket, StudyCard
 

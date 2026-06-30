@@ -8,8 +8,7 @@ deterministic, read-only health assessment layer imported by the broker, daemon,
 import datetime
 import json
 import math
-import os
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from optuna.trial import TrialState
 
