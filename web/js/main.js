@@ -12,25 +12,24 @@ document.addEventListener("DOMContentLoaded", () => {
 
     window.fetchSearchSpace();
     window.fetchHpoConfig();
-    
-    const reviewPill = document.getElementById("dashboard-review-pill");
-    if (reviewPill) {
-        reviewPill.addEventListener("click", window.copyReviewPrompt);
-        reviewPill.addEventListener("keydown", (e) => {
-            if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                window.copyReviewPrompt();
-            }
-        });
-    }
-    const reviewCloseBtn = document.getElementById("dashboard-review-close");
-    if (reviewCloseBtn) {
-        reviewCloseBtn.addEventListener("click", (e) => {
-            e.stopPropagation();
-            window.dismissReviewPill();
-        });
-    }
+
     window.populateStudyList();
+    
+    async function checkWelcomeState() {
+        const overlay = document.getElementById("welcome-overlay");
+        if (!overlay) return;
+        try {
+            const res = await fetch("/api/studies");
+            const data = await res.json();
+            if (data.success && (!data.studies || data.studies.length === 0)) {
+                overlay.style.display = "flex";
+            }
+        } catch (e) {
+            overlay.style.display = "flex";
+        }
+    }
+    checkWelcomeState();
+
     const studySelect = document.getElementById("study-select");
     if (studySelect) {
         studySelect.addEventListener("change", (e) => {
@@ -88,7 +87,6 @@ async function pollData() {
     try {
         await Promise.all([
             fetchStudyDetails(true),
-            fetchPendingChanges(true),
             checkStudyHealth(true)
         ]);
         
@@ -121,5 +119,26 @@ async function pollData() {
 
 // Window exports
 window.pollData = pollData;
+
+async function launchDemo() {
+    const status = document.getElementById("welcome-status");
+    const btn = document.getElementById("welcome-launch-btn");
+    if (status) status.textContent = "Initializing demo study...";
+    if (btn) btn.disabled = true;
+    try {
+        const res = await fetch("/api/quickstart_demo", { method: "POST" });
+        const data = await res.json();
+        if (data.success) {
+            window.location.href = `/?study=${data.study_name}`;
+        } else {
+            if (status) status.textContent = "Failed to launch demo. Try again.";
+            if (btn) btn.disabled = false;
+        }
+    } catch (e) {
+        if (status) status.textContent = "Connection error. Is the broker running?";
+        if (btn) btn.disabled = false;
+    }
+}
+window.launchDemo = launchDemo;
 
 window.addEventListener("hashchange", () => window.handleRouting());

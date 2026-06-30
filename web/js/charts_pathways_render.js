@@ -155,7 +155,7 @@ function updateParallelCoordinates(trials, paretoSet) {
             ctx.strokeStyle = "rgba(100, 116, 139, 0.15)";
             ctx.lineWidth = 1;
         } else {
-            const score = t.dice !== null ? t.dice : 0;
+            const score = t.score !== null ? t.score : 0;
             const ratio = Math.max(0, Math.min(1, score));
             const grad = ctx.createLinearGradient(xPad, 0, W - xPad, 0);
             grad.addColorStop(0, `hsla(260, 80%, 60%, ${0.15 + ratio * 0.3})`);
@@ -177,7 +177,7 @@ function updateParallelCoordinates(trials, paretoSet) {
         
         const lossLabel = window.HPOState.data.hpoConfig?.metric_loss_label || "Loss";
         const scoreLabel = window.HPOState.data.hpoConfig?.metric_score_label || "Score";
-        const tooltipText = `Trial #${t.number} [${t.state}] — ${scoreLabel}: ${t.dice !== null ? t.dice.toFixed(4) : "N/A"}, ${lossLabel}: ${t.bce !== null ? t.bce.toFixed(4) : "N/A"}`;
+        const tooltipText = `Trial #${t.number} [${t.state}] — ${scoreLabel}: ${t.score !== null ? t.score.toFixed(4) : "N/A"}, ${lossLabel}: ${t.loss !== null ? t.loss.toFixed(4) : "N/A"}`;
         ctx.font = "600 0.75rem Inter, system-ui, sans-serif";
         const textWidth = ctx.measureText(tooltipText).width;
         const boxW = textWidth + 20, boxH = 28;

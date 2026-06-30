@@ -4,7 +4,7 @@
     <script src="/js/auth.js"></script>
     <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Pathfinder</title>
     <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700;800&family=Geist+Mono:wght@300;400;500;600;700&family=VT323&display=swap" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script><link rel="stylesheet" href="/styles.css">
+    <script src="/js/chart.min.js"></script><link rel="stylesheet" href="/styles.css">
 </head>
 <body>
     <div class="app-layout">
@@ -16,7 +16,7 @@
                         <svg id="collapse-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
                     </button>
                 </div>
-                <ul class="nav-list"><li class="nav-item active" id="nav-dashboard" onclick="window.location.hash = 'dashboard'"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg><span class="sidebar-label">Dashboard</span></li><li class="nav-item" id="nav-analysis" onclick="window.location.hash = 'analysis'"><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M18.5 9.5L13 15L9 11L5 15"/></svg><span class="sidebar-label">Analysis</span></li><li class="nav-item" id="nav-search-space" onclick="window.location.hash = 'search-space'"><svg viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg><span class="sidebar-label">Search Space</span></li><li class="nav-item" id="nav-worker-setup" onclick="window.location.hash = 'worker-setup'"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="m7 9 3 3-3 3"/><line x1="12" y1="15" x2="17" y2="15"/></svg><span class="sidebar-label">Worker Setup</span></li></ul>
+                <ul class="nav-list"><li class="nav-item active" id="nav-dashboard" onclick="window.location.hash = 'dashboard'"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg><span class="sidebar-label">Dashboard</span></li><li class="nav-item" id="nav-analysis" onclick="window.location.hash = 'analysis'"><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M18.5 9.5L13 15L9 11L5 15"/></svg><span class="sidebar-label">Analysis</span></li><li class="nav-item" id="nav-search-space" onclick="window.location.hash = 'search-space'"><svg viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg><span class="sidebar-label">Search Space</span></li></ul>
             </div>
             <div class="sidebar-footer">
                 <button type="button" class="accent-toggle" id="accent-toggle" aria-expanded="false" onclick="toggleAccentPanel()" style="margin-bottom: 6px; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;">
@@ -48,8 +48,18 @@
                         <div style="display: flex; align-items: center; gap: 6px;"><span>WORKERS:</span><strong id="workers-count-val" style="color: #fff; font-weight: 600;">0</strong></div>
                     </div>
                 </div>
-                <button type="button" class="btn-new-study-header" id="btn-new-study" onclick="window.showNewStudyModal()">+ New Study</button>
+
             </header>
+            <div id="welcome-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.85); z-index:1000; align-items:center; justify-content:center;">
+                <div style="text-align:center; max-width:480px; padding:48px 40px; border:1px solid rgba(255,255,255,0.08); background:var(--card-bg);">
+                    <div class="brand-mark" aria-hidden="true" style="margin:0 auto 16px;"></div>
+                    <h2 style="margin:0 0 8px; font-size:1.4rem;">Welcome to Pathfinder</h2>
+                    <p style="color:var(--text-muted); margin:0 0 6px; font-size:0.85rem;">An MCP-integrated hyperparameter optimization dashboard.</p>
+                    <p style="color:var(--text-muted); margin:0 0 24px; font-size:0.8rem;">No studies found — launch a simulated demo to see live trials, pruning, and the Pareto chart in action.</p>
+                    <button id="welcome-launch-btn" onclick="launchDemo()" style="padding:10px 28px; background:var(--accent-color); color:#000; border:none; font-weight:600; font-size:0.9rem; cursor:pointer;">Launch Interactive Demo Study</button>
+                    <p id="welcome-status" style="margin:12px 0 0; color:var(--text-muted); font-size:0.75rem;"></p>
+                </div>
+            </div>
             <div class="content-view active" id="dashboard-view">
                 <div class="dashboard-main">
                     <div class="card" id="dashboard-trial-monitor-card">
@@ -80,7 +90,7 @@
                             <h4 style="color: var(--text-color); margin-top: 0; margin-bottom: 12px; font-weight: 500;">How to run a training worker:</h4>
                             <ol style="margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px;">
                                 <li>Configure your search space and evaluation protocol in the <strong>Search Space</strong> tab.</li>
-                                <li>Go to the <a href="#worker-setup" onclick="window.location.hash = 'worker-setup'; return false;" style="color: var(--accent-color); text-decoration: underline; font-weight: 500;">Worker Setup</a> tab to copy the worker integration script (Custom or Colab).</li>
+                                <li>Set <code>HPO_BROKER_URL</code> and <code>HPO_STUDY_NAME</code> on your training machine. See docs/INTEGRATION.md for details.</li>
                                 <li>Run the worker script on your GPU machine. The worker will connect to this broker, request trials, and report epoch metrics.</li>
                             </ol>
                         </div>
@@ -111,7 +121,7 @@
                                 <summary id="audit-history-summary">Show audit history</summary><div id="past-reviews-list" class="audit-history-list"></div>
                             </details>
                             <div id="health-action-container" style="display: flex; gap: 8px; margin-top: 8px;">
-                                <button id="health-action-btn" class="toolbar-btn" style="display: none;" onclick="copyDiagnosticPrompt()">Copy Diagnostic Prompt</button><button id="health-dismiss-btn" class="toolbar-btn" style="display: none;" onclick="dismissHealthAlert()">Reset Pings</button>
+                                <button id="health-action-btn" class="toolbar-btn" style="display: none;" onclick="copyDiagnosticPrompt()">Copy Diagnostic Prompt</button>
                             </div>
                         </div>
                     </div>
@@ -123,6 +133,14 @@
                         <div class="card-header">Active Search Space</div>
                         <div class="card-content" id="dashboard-search-space-summary-content" style="padding: 12px; font-family: var(--font-mono); font-size: 0.78rem; display: flex; flex-direction: column; gap: 6px; overflow-y: auto;"><div style="color: var(--text-muted); text-align: center; padding: 10px;">Loading space bounds...</div></div>
                     </div>
+                    <details class="card" id="remote-worker-setup-details" style="margin-bottom: 0; padding: 0; background: transparent; border: 1px solid var(--border-color);">
+                        <summary style="padding: 10px 12px; cursor: pointer; font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); user-select: none; border-bottom: 1px solid var(--border-color);">Remote Worker Setup</summary>
+                        <div style="padding: 12px; font-size: 0.78rem; color: var(--text-muted); line-height: 1.5;">
+                            <p style="margin: 0 0 8px;"><code>export HPO_BROKER_URL=http://your-broker:8000</code></p>
+                            <p style="margin: 0 0 8px;"><code>export HPO_STUDY_NAME=your_study_name</code></p>
+                            <p style="margin: 0; font-style: italic;">See docs/INTEGRATION.md for full worker setup instructions.</p>
+                        </div>
+                    </details>
                 </div>
             </div>
             <div class="content-view" id="analysis-view">
@@ -155,7 +173,7 @@
                                 <div class="table-scroll-wrapper" id="analysis-table-scroll">
                                 <table class="trial-table" id="analysis-trial-table">
                                     <thead>
-                                        <tr><th class="col-trial">Trial</th><th class="col-state">State</th><th class="col-metric" id="analysis-th-dice-train">Score (train)</th><th class="col-metric" id="analysis-th-dice-fixed">Score (eval)</th><th class="col-metric">Loss</th><th class="td-mono" colspan="3">Parameters...</th></tr>
+                                        <tr><th class="col-trial">Trial</th><th class="col-state">State</th><th class="col-metric" id="analysis-th-score-train">Score (train)</th><th class="col-metric" id="analysis-th-score-fixed">Score (eval)</th><th class="col-metric">Loss</th><th class="td-mono" colspan="3">Parameters...</th></tr>
                                     </thead>
                                     <tbody id="analysis-trials-body"><tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 32px;">Loading study results…</td></tr></tbody>
                                 </table>
@@ -182,13 +200,6 @@
                     </div>
                     <div class="tab-panels">
                         <div class="tab-panel active" id="settings-tab-bounds">
-                            <div id="pending-changes-banner" class="pending-banner hidden">
-                                <div class="pending-banner-header">
-                                    <span class="pending-banner-title">Proposed Search Space Changes</span>
-                                    <div class="pending-banner-actions"><button type="button" class="pending-btn apply" onclick="applyPendingChanges()">Apply Proposal</button><button type="button" class="pending-btn discard" onclick="discardPendingChanges()">Skip / Discard</button></div>
-                                </div>
-                                <div id="pending-changes-diff" class="pending-diff-content"></div>
-                            </div>
                             <div id="search-space-controls"></div>
                         </div>
                         <div class="tab-panel" id="settings-tab-eval">
@@ -227,42 +238,6 @@
                                 <div class="control-group"><div class="control-label"><span>Max epoch score jump (fraction)</span></div><input type="number" class="number-input number-input--compact" id="validation-max-epoch-jump" step="0.05" min="0" max="10" placeholder="e.g. 0.5"></div>
                             </div>
                             <div class="eval-form-actions"><button type="button" class="toolbar-btn" onclick="saveEvalProtocol()">Save eval protocol</button></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="content-view" id="worker-setup-view">
-                <div class="analysis-layout" style="height: 100%; display: flex; flex-direction: column;">
-                    <div class="tab-bar">
-                        <button type="button" class="tab-btn active" id="worker-tab-btn-custom" onclick="window.location.hash = 'worker-setup-custom'">Custom Script Integration</button><button type="button" class="tab-btn" id="worker-tab-btn-colab" onclick="window.location.hash = 'worker-setup-colab'">Google Colab Integration</button><button type="button" class="tab-btn" id="worker-tab-btn-ide" onclick="window.location.hash = 'worker-setup-ide'">Notifications</button>
-                    </div>
-                    <div class="analysis-scroll" style="flex: 1; min-height: 0; background-color: transparent;">
-                        <div class="worker-setup-note" id="worker-setup-note">
-                            <div class="worker-setup-note-block"><span class="worker-setup-note-heading">Remote GPU?</span><p class="worker-setup-note-body"><code>export HPO_SECRET_TOKEN=…</code> then <code>python broker.py --daemon --tunnel</code>.</p><p class="worker-setup-note-body">Colab must send that token as <code>X-HPO-Token</code> on the worker download.</p></div>
-                            <div class="worker-setup-note-block"><span class="worker-setup-note-heading">Local only?</span><p class="worker-setup-note-body"><code>python broker.py --daemon</code> — no token, no tunnel.</p></div>
-                        </div>
-                        <div class="card" id="worker-custom-card" style="margin-bottom: 0;">
-                            <div class="card-header">Custom Training Script Integration</div>
-                            <div class="card-content" style="padding: 12px 14px;">
-                                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 14px;"><label for="ngrok-url-input" style="font-size: 0.85rem; color: var(--text-muted); white-space: nowrap;">Broker URL:</label><input type="text" id="ngrok-url-input" placeholder="http://localhost:8000" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 0; padding: 6px 10px; color: var(--text-color); font-family: var(--font-main); font-size: 0.85rem; flex: 1;" oninput="updateColabSnippet()"></div>
-                                <pre id="custom-worker-snippet" style="background-color: #0b0c10; border: 1px solid var(--border-color); padding: 12px; margin-bottom: 14px; font-family: var(--font-mono); font-size: 0.85rem; overflow-x: auto; text-align: left; line-height: 1.6; color: #c9d1d9; white-space: pre-wrap;"></pre>
-                                <div style="font-size: 0.82rem; color: var(--text-muted); line-height: 1.4; margin-top: 10px;">Customize <code>worker_minimal.py</code> and return <code>(score, loss)</code>. The client wrapper handles ASHA early-stopping, CUDA OOM detection, and telemetry.</div>
-                            </div>
-                        </div>
-                        <div class="card" id="worker-colab-card" style="margin-bottom: 0; display: none;">
-                            <div class="card-header">Google Colab Integration</div>
-                            <div class="card-content" style="padding: 12px 14px;">
-                                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;"><label for="ngrok-url-input-colab" style="font-size: 0.85rem; color: var(--text-muted); white-space: nowrap;">Broker URL:</label><input type="text" id="ngrok-url-input-colab" placeholder="https://hpo.mycustomdomain.com" style="background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-color); border-radius: 0; padding: 6px 10px; color: var(--text-color); font-family: var(--font-main); font-size: 0.85rem; flex: 1;" oninput="syncColabUrl(this.value)"></div>
-                                <div id="colab-warning-banner" style="display: none; background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); padding: 10px 12px; margin-bottom: 14px; color: #f59e0b; font-size: 0.85rem; line-height: 1.5;"><div style="font-weight: 700; margin-bottom: 6px;">⚠️ Connection warning</div><div>The active broker URL is local (<span id="colab-warning-url">localhost</span>). Colab cannot reach it. Start with tunnel, paste URL above.</div></div>
-                                <div class="colab-snippet-wrap"><button onclick="copyColabSnippet(this)" style="position: absolute; top: 10px; right: 10px; background: rgba(255,255,255,0.05); border: 1px solid var(--border-color); padding: 4px 8px; color: var(--text-color); font-size: 0.75rem; cursor: pointer; z-index: 1;">Copy Snippet</button><pre id="colab-snippet-text"></pre></div>
-                            </div>
-                        </div>
-                        <div class="card" id="worker-ide-card" style="margin-bottom: 0; display: none;">
-                            <div class="card-header">Notifications</div>
-                            <div class="card-content" style="padding: 16px 14px;">
-                                <div class="eval-check-row" style="margin-bottom: 20px;"><label class="hpo-toggle"><input type="checkbox" id="desktop-notifs-enabled"><span class="hpo-toggle-box" aria-hidden="true"></span><span class="hpo-toggle-text"><span class="hpo-toggle-label">Enable macOS desktop notifications</span><span class="hpo-toggle-desc">System notification on Watch or Intervene health.</span></span></label></div>
-                                <div style="display: flex; justify-content: flex-end; width: 100%; margin-top: 16px;"><button type="button" class="toolbar-btn" onclick="saveIdeSettings()">Save settings</button></div>
-                            </div>
                         </div>
                     </div>
                 </div>
@@ -308,48 +283,6 @@
             </div>
         </div>
     </div>
-    <div class="modal-overlay" id="new-study-modal" onclick="window.closeNewStudyModal(event)">
-        <div class="modal-card" onclick="event.stopPropagation()" style="width: 900px; max-width: 95%;">
-            <div class="modal-header">
-                <h3 class="modal-title">Create New Study from Manifest</h3>
-                <button class="modal-close" onclick="window.closeNewStudyModalDirect()">&times;</button>
-            </div>
-            <div class="modal-content" style="gap: 16px;">
-                <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.4; margin-bottom: 8px;">
-                    Upload or drag-and-drop a <code>manifest.hpo.yaml</code> file to register a new study. You can also edit the configuration details directly below before initializing.
-                </p>
-                <div class="modal-grid" style="grid-template-columns: 1fr 1fr; gap: 20px; align-items: stretch;">
-                    <div style="display: flex; flex-direction: column; gap: 12px;">
-                        <div class="manifest-upload-zone" id="manifest-upload-zone" style="border: 2px dashed var(--border-color); padding: 30px 20px; text-align: center; cursor: pointer; transition: border-color 0.2s ease, background-color 0.2s ease; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;">
-                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--text-muted);"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                            <span style="font-size: 0.85rem; font-weight: 500;">Drag and drop manifest YAML here</span>
-                            <span style="font-size: 0.75rem; color: var(--text-muted);">or click to select file</span>
-                            <input type="file" id="manifest-file-input" accept=".yaml,.yml" style="display: none;">
-                        </div>
-                        <div style="display: flex; flex-direction: column; gap: 6px; flex: 1;">
-                            <label for="manifest-yaml-editor" style="font-size: 0.75rem; font-weight: 600; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Manifest YAML Preview / Editor</label>
-                            <textarea id="manifest-yaml-editor" placeholder="study_name: my_new_study&#10;metrics:&#10;  primary_score: dice&#10;  objectives:&#10;    - name: dice&#10;      direction: maximize&#10;      label: Dice&#10;..." style="width: 100%; height: 320px; font-family: var(--font-mono); font-size: 0.8rem; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: #fff; padding: 12px; resize: none; outline: none; line-height: 1.4;"></textarea>
-                        </div>
-                    </div>
-                    <div style="display: flex; flex-direction: column; gap: 12px;">
-                        <label style="font-size: 0.75rem; font-weight: 600; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Validation Console</label>
-                        <div id="manifest-validation-console" style="flex: 1; background: #000; border: 1px solid var(--border-color); padding: 14px; font-family: var(--font-mono); font-size: 0.8rem; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; min-height: 250px; max-height: 420px;">
-                            <div style="color: var(--text-muted); font-style: italic;">No manifest loaded yet. Drag-and-drop or select a file to begin.</div>
-                        </div>
-                        <div style="display: flex; align-items: center; justify-content: space-between; border-top: 1px solid var(--border-color); padding-top: 12px; margin-top: 4px;">
-                            <label class="hpo-toggle" style="margin-left: 0;">
-                                <input type="checkbox" id="manifest-force-check"><span class="hpo-toggle-box" aria-hidden="true"></span><span class="hpo-toggle-label" style="font-size: 0.8rem; font-weight: 600;">Force Overwrite (if exists)</span>
-                            </label>
-                            <div style="display: flex; gap: 10px;">
-                                <button type="button" class="toolbar-btn" style="background: transparent; border: 1px solid var(--border-color); color: var(--text-color);" onclick="window.closeNewStudyModalDirect()">Cancel</button>
-                                <button type="button" class="toolbar-btn" id="btn-submit-manifest" style="background: var(--accent-color); color: #000; font-weight: 700;" onclick="window.submitManifest()" disabled>Initialize Study</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-    <script src="/js/state.js"></script><script src="/js/utils.js"></script><script src="/js/theme.js"></script><script src="/js/routing.js"></script><script src="/js/api.js"></script><script src="/js/settings.js"></script><script src="/js/export.js"></script><script src="/js/worker_setup.js"></script><script src="/js/table_infra.js"></script><script src="/js/table_filters.js"></script><script src="/js/table_render.js"></script><script src="/js/charts_utils.js"></script><script src="/js/charts_pareto.js"></script><script src="/js/charts_pathways_math.js"></script><script src="/js/charts_pathways_render.js"></script><script src="/js/charts_timeline.js"></script><script src="/js/charts_modal.js"></script><script src="/js/modal.js"></script><script src="/js/health.js"></script><script src="/js/onboarding.js"></script><script src="/js/main.js"></script>
+    <script src="/js/state.js"></script><script src="/js/utils.js"></script><script src="/js/theme.js"></script><script src="/js/routing.js"></script><script src="/js/api.js"></script><script src="/js/settings.js"></script><script src="/js/export.js"></script><script src="/js/table_infra.js"></script><script src="/js/table_filters.js"></script><script src="/js/table_render.js"></script><script src="/js/charts_utils.js"></script><script src="/js/charts_pareto.js"></script><script src="/js/charts_pathways_math.js"></script><script src="/js/charts_pathways_render.js"></script><script src="/js/charts_timeline.js"></script>    <script src="/js/charts_modal.js"></script><script src="/js/health.js"></script><script src="/js/main.js"></script>
 </body>
 </html>

@@ -13,14 +13,14 @@ function prepareParetoDatasets(trials, paretoSet, directions, isSingleObj, isMin
 
     if (isSingleObj) {
         const sortedCompleted = trials
-            .filter(t => t.state === "COMPLETE" && (isMinimize ? t.bce !== null : t.dice !== null))
+            .filter(t => t.state === "COMPLETE" && (isMinimize ? t.loss !== null : t.score !== null))
             .sort((a, b) => a.number - b.number);
             
         let currentBest = null;
         const bestLinePoints = [];
         
         sortedCompleted.forEach(t => {
-            const val = isMinimize ? t.bce : t.dice;
+            const val = isMinimize ? t.loss : t.score;
             if (currentBest === null) {
                 currentBest = val;
             } else {
@@ -31,13 +31,13 @@ function prepareParetoDatasets(trials, paretoSet, directions, isSingleObj, isMin
         
         const completedPoints = sortedCompleted.map(t => ({
             x: t.number,
-            y: isMinimize ? t.bce : t.dice,
+            y: isMinimize ? t.loss : t.score,
             label: `Trial ${t.number}`
         }));
         
         const runningTrials = trials.filter(t => t.state === "RUNNING");
         runningTrials.forEach(t => {
-            const val = isMinimize ? t.bce : t.dice;
+            const val = isMinimize ? t.loss : t.score;
             if (val !== null && val !== undefined) {
                 runningPoints.push({ x: t.number, y: val, label: `Trial ${t.number} (running)` });
             }
@@ -84,8 +84,8 @@ function prepareParetoDatasets(trials, paretoSet, directions, isSingleObj, isMin
         const scatterPoints = [];
         const paretoPoints = [];
         trials.forEach(t => {
-            if (t.bce === null || t.dice === null) return;
-            const point = { x: t.bce, y: t.dice, label: `Trial ${t.number}` };
+            if (t.loss === null || t.score === null) return;
+            const point = { x: t.loss, y: t.score, label: `Trial ${t.number}` };
             if (t.state === "RUNNING") {
                 runningPoints.push(point);
             } else if (paretoSet.has(t.number)) {
@@ -137,7 +137,7 @@ function prepareParetoDatasets(trials, paretoSet, directions, isSingleObj, isMin
         }
     }
 
-    const totalPoints = trials.filter(t => (isSingleObj ? (isMinimize ? t.bce !== null : t.dice !== null) : (t.bce !== null && t.dice !== null))).length;
+    const totalPoints = trials.filter(t => (isSingleObj ? (isMinimize ? t.loss !== null : t.score !== null) : (t.loss !== null && t.score !== null))).length;
     return { datasets, totalPoints };
 }
 

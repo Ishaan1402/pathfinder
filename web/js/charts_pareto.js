@@ -16,8 +16,8 @@ function updateChart(trials, paretoSet, directions) {
     const isSingleObj = !directions || directions.length === 1;
     const isMinimize = directions && directions[0] === "MINIMIZE";
     
-    const lossLabel = window.HPOState.data.hpoConfig?.metric_loss_label || "BCE";
-    const scoreLabel = window.HPOState.data.hpoConfig?.metric_score_label || "Dice";
+    const lossLabel = window.HPOState.data.hpoConfig?.metric_loss_label || "Loss";
+    const scoreLabel = window.HPOState.data.hpoConfig?.metric_score_label || "Score";
     const metricLabel = isMinimize ? lossLabel : scoreLabel;
     const accentColor = window.HPOState.ui.accentColorHex;
 

@@ -156,7 +156,7 @@ function copyDiagnosticPrompt() {
         anomaly: window.HPOState.data.studyHealthReason || "unknown anomaly",
         active_search_space: window.HPOState.data.activeSearchSpace || {},
         recent_trials: window.HPOState.data.trials.slice(0, 3).map(t => ({
-            trial_id: t.number, state: t.state, params: t.params, score: t.dice, loss: t.bce
+            trial_id: t.number, state: t.state, params: t.params, score: t.score, loss: t.loss
         }))
     };
     const promptText = `I need help debugging my Pathfinder study because it is failing health checks:

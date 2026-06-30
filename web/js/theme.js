@@ -80,7 +80,7 @@ function changeAccent(accentName, colorHex, glowStyle) {
     
     if (window.HPOState.charts.modalHistory.instance && window.HPOState.charts.modalHistory.instance.data && window.HPOState.charts.modalHistory.instance.data.datasets) {
         window.HPOState.charts.modalHistory.instance.data.datasets.forEach(ds => {
-            if (ds.yAxisID === "y-dice") {
+            if (ds.yAxisID === "y-score") {
                 ds.borderColor = colorHex;
             }
         });

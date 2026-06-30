@@ -12,14 +12,14 @@ function updateModalChart(history) {
     }
 
     const labels = history.map(h => `E${h.epoch}`);
-    const scoreData = history.map(h => h.score !== undefined ? h.score : h.dice);
-    const lossData = history.map(h => h.loss !== undefined ? h.loss : h.bce);
+    const scoreData = history.map(h => h.score);
+    const lossData = history.map(h => h.loss);
 
     const hasScore = scoreData.some(d => d !== null && d !== undefined);
     const hasLoss = lossData.some(d => d !== null && d !== undefined);
 
-    const lossLabel = window.HPOState.data.hpoConfig?.metric_loss_label || "BCE";
-    const scoreLabel = window.HPOState.data.hpoConfig?.metric_score_label || "Dice";
+    const lossLabel = window.HPOState.data.hpoConfig?.metric_loss_label || "Loss";
+    const scoreLabel = window.HPOState.data.hpoConfig?.metric_score_label || "Score";
     const lossText = lossLabel.toLowerCase().includes("loss") ? lossLabel : `${lossLabel} Loss`;
     const scoreText = scoreLabel.toLowerCase().includes("score") || scoreLabel.toLowerCase().includes("accuracy") ? scoreLabel : `${scoreLabel} Score`;
 
