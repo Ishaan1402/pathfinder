@@ -1,7 +1,6 @@
 import hmac
 import os
 from contextlib import asynccontextmanager
-from typing import List
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware

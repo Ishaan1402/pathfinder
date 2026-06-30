@@ -3,10 +3,9 @@
 This is the entire contract a worker needs to participate in a study:
     suggest -> report_epoch (per epoch) -> complete
 
-It has no ML / framework dependencies (no torch, cv2, DeepCrack, or UNet). Bring your own
-training loop and call these three methods. The root `colab_worker.py` is the full
-bridge-crack reference implementation; cloners should use this client plus
-`templates/worker_minimal.py` instead of forking that file.
+It has no ML / framework dependencies (no torch, cv2, or model-specific code). Bring your own
+training loop and call these three methods. Use `templates/worker_minimal.py` as a starting
+point for your own project.
 
 Environment:
     HPO_BROKER_URL   Base URL of the broker (e.g. an ngrok tunnel). Required for HTTP mode.
@@ -18,12 +17,12 @@ Example:
     session = TrialSession()              # reads HPO_BROKER_URL / HPO_STUDY_NAME
     trial = session.suggest()             # {trial_id, trial_number, params}
     for epoch in range(num_epochs):
-        dice, bce = train_one_epoch(trial["params"])
-        if session.report_epoch(epoch, dice, bce):   # True => broker says prune
-            session.complete(epoch, dice, bce, state="PRUNED")
+        score, loss = train_one_epoch(trial["params"])
+        if session.report_epoch(epoch, score, loss):   # True => broker says prune
+            session.complete(epoch, score, loss, state="PRUNED")
             break
     else:
-        session.complete(epoch, dice, bce, weights_path="model.pt", history=session.history)
+        session.complete(epoch, score, loss, weights_path="model.pt", history=session.history)
 """
 import os
 from typing import Any, Dict, List, Optional
@@ -332,15 +331,11 @@ class TrialSession:
             "epoch": epoch,
             "score": score,
             "loss": loss,
-            # Backwards compatibility keys for UI / charts
-            "dice": score,
-            "bce": loss,
         }
         if score_eval_fixed is not None:
             entry["score_eval_fixed"] = score_eval_fixed
-            entry["dice_eval_fixed"] = score_eval_fixed
+        if loss_eval_fixed is not None:
             entry["loss_eval_fixed"] = loss_eval_fixed
-            entry["bce_eval_fixed"] = loss_eval_fixed
         self.history.append(entry)
 
         data = self._post("/api/report_epoch", payload)

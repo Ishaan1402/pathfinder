@@ -12,13 +12,13 @@ def api_suggest_trial_help():
         "error": "Method not allowed: use POST, not GET",
         "post_url": "/api/suggest_trial",
         "body_example": {
-            "study_name": "bridge_crack_study",
+            "study_name": "my_study",
             "reasoning": "Autonomous worker suggestion request.",
         },
         "curl_example": (
             'curl -X POST "$BROKER_URL/api/suggest_trial" '
             '-H "Content-Type: application/json" '
-            '-d \'{"study_name":"bridge_crack_study"}\''
+            '-d \'{"study_name":"my_study"}\''
         ),
     }
 

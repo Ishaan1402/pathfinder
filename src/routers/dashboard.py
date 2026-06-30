@@ -2,7 +2,7 @@ import hmac
 import json
 import traceback
 import logging
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -12,12 +12,8 @@ from optuna.trial import TrialState
 from ..db_manager import get_db_session, get_or_create_study_status
 from ..settings import settings
 from ..schema import (
-    StudyStatus,
     TrialResult,
     SystemConfiguration,
-    CoordinatorMetric,
-    SuggestMetric,
-    InvalidProposal,
 )
 from ..hpo_config import (
     load_hpo_config,
@@ -25,36 +21,26 @@ from ..hpo_config import (
     normalize_trial_params,
     param_display_name,
 )
-from ..metrics import score_objective_index, _trial_metric_snapshot
+from ..metrics import _trial_metric_snapshot
 from ..search_space import (
-    _migrate_search_space,
     load_search_space,
-    _apply_search_space_patch,
     handle_api_get_search_space,
     handle_api_update_search_space,
+    _fixed_categorical_params,
 )
 from ..pruning import _effective_train_resolution
-from ..suggest import (
-    get_or_create_study,
-    load_study,
-    _enqueue_manual_trial,
-)
+from ..suggest import load_study
 from ..leases import (
     _reap_stale_running_trials,
     _reap_expired_leases,
 )
-from ..hpo_coordinator import (
+from ..health import compute_health_tier, compute_statistical_confidence, count_evaluated_trials
+from ..analytics import (
     study_eval_insights as _study_eval_insights,
     pareto_trial_numbers_deploy_aware as _pareto_trial_numbers_deploy_aware,
-    build_review_packet,
-    save_study_review,
-    get_recent_study_reviews,
-    count_evaluated_trials,
-    compute_review_heuristics,
-    compute_statistical_confidence,
-    validate_review_fields,
-    mark_review_applied,
-    flag_study_review,
+    build_study_packet,
+    load_study_cards,
+    get_fanova_importances,
 )
 
 logger = logging.getLogger(__name__)
@@ -64,25 +50,6 @@ router = APIRouter(prefix="/api")
 
 class LoginRequest(BaseModel):
     token: str
-
-
-class InitFromManifestRequest(BaseModel):
-    yaml: str
-
-
-class AgentReviewRequest(BaseModel):
-    study_name: str
-    summary: str
-    health_rating: Optional[int] = None  # 1-5
-    policy_action: Optional[str] = "no_change"  # no_change | update_active_search_space | enqueue_one_manual_trial
-    model_version: Optional[str] = "coordinator"
-    prompt_strategy: Optional[str] = "coordinator_review"
-    reasons: Optional[List[Dict[str, Any]]] = None
-    search_space_patch: Optional[Dict[str, Any]] = None
-    manual_trial: Optional[Dict[str, Any]] = None
-    estimated_score_improvement: Optional[float] = None
-    cited_best_trial: Optional[int] = None
-    force: Optional[bool] = False
 
 
 @router.post("/login")
@@ -137,161 +104,27 @@ def api_update_search_space(space: Dict[str, Any], study_name: Optional[str] = N
 @router.get("/study_health")
 def api_get_study_health(study_name: str):
     try:
-        study = get_or_create_study(study_name)
+        study = load_study(study_name)
         with get_db_session() as session:
             _reap_stale_running_trials(study, study_name, session)
     except Exception as reap_err:
         print(f"study_health reap skipped for '{study_name}': {reap_err}")
 
+    study = load_study(study_name)
+    health_tier, health_reason = compute_health_tier(study, study_name)
+    trials_evaluated = count_evaluated_trials(study)
+
     with get_db_session() as session:
-        status = session.query(StudyStatus).filter_by(study_name=study_name).first()
-        is_dismissed = False
-        if status:
-            try:
-                study = get_or_create_study(study_name)
-                trials_evaluated = count_evaluated_trials(study)
-                if status.nudge_dismissed_trials == trials_evaluated:
-                    is_dismissed = True
-            except Exception as e:
-                logger.warning(f"Failed to load study {study_name} when checking dismissal status: {e}")
-            return {
-                "study_name": study_name,
-                "health_tier": status.health_tier,
-                "health_reason": status.health_reason,
-                "health_updated_at": status.health_updated_at.isoformat() if status.health_updated_at else None,
-                "is_dismissed": is_dismissed
-            }
-        return {
-            "study_name": study_name,
-            "health_tier": "healthy",
-            "health_reason": "No status found, defaulting to healthy.",
-            "health_updated_at": None,
-            "is_dismissed": False
-        }
+        status = get_or_create_study_status(session, study_name)
+        status.health_tier = health_tier
+        status.health_reason = health_reason
 
-
-@router.get("/pending_changes")
-def api_get_pending_changes(study_name: Optional[str] = None):
-    if not study_name:
-        study_name = settings.study_name
-    with get_db_session() as session:
-        row = session.query(SystemConfiguration).filter_by(
-            study_name=study_name, config_key="pending_search_space"
-        ).first()
-        if row:
-            try:
-                return {"proposed_changes": json.loads(row.config_value)}
-            except Exception as e:
-                return {"proposed_changes": None, "error": str(e)}
-    return {"proposed_changes": None}
-
-
-@router.post("/apply_pending_changes")
-def api_apply_pending_changes(study_name: Optional[str] = None):
-    if not study_name:
-        study_name = settings.study_name
-    try:
-        with get_db_session() as session:
-            pending_row = session.query(SystemConfiguration).filter_by(
-                study_name=study_name, config_key="pending_search_space"
-            ).first()
-            if not pending_row:
-                raise HTTPException(status_code=400, detail="No pending changes found.")
-            
-            proposed = json.loads(pending_row.config_value)
-            current = load_search_space(study_name)
-            
-            for key, new_val in proposed.items():
-                if key not in current:
-                    raise HTTPException(status_code=400, detail=f"Parameter {key} not in active search space.")
-                
-                p_type = current[key].get("type")
-                if p_type == "categorical":
-                    if "active" in new_val:
-                        allowed = current[key].get("options", [])
-                        invalid = [x for x in new_val["active"] if x not in allowed]
-                        if invalid:
-                            raise HTTPException(status_code=400, detail=f"Invalid active options for {key}: {invalid}")
-                        if not new_val["active"]:
-                            raise HTTPException(status_code=400, detail=f"Must keep at least one active option for {key}.")
-                        current[key]["active"] = new_val["active"]
-                else:
-                    if "min" in new_val:
-                        current[key]["min"] = float(new_val["min"])
-                    if "max" in new_val:
-                        current[key]["max"] = float(new_val["max"])
-            
-            session.merge(SystemConfiguration(
-                study_name=study_name,
-                config_key="active_search_space",
-                config_value=json.dumps(_migrate_search_space(current))
-            ))
-            session.delete(pending_row)
-            mark_review_applied(study_name)
-            return {"success": True, "space": current}
-    except HTTPException as he:
-        raise he
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to apply pending changes: {str(e)}")
-
-
-@router.post("/discard_pending_changes")
-def api_discard_pending_changes(study_name: Optional[str] = None):
-    if not study_name:
-        study_name = settings.study_name
-    try:
-        with get_db_session() as session:
-            row = session.query(SystemConfiguration).filter_by(
-                study_name=study_name, config_key="pending_search_space"
-            ).first()
-            if row:
-                session.delete(row)
-        return {"success": True}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to discard pending changes: {str(e)}")
-
-
-@router.post("/validate_manifest")
-def api_validate_manifest(req: InitFromManifestRequest):
-    import yaml
-    from ..manifest import validate_manifest
-    try:
-        data = yaml.safe_load(req.yaml)
-    except Exception as e:
-        return {"success": False, "errors": [f"Invalid YAML structure: {str(e)}"], "warnings": []}
-        
-    if not isinstance(data, dict):
-        return {"success": False, "errors": ["Manifest root must be a dictionary"], "warnings": []}
-
-    errors, warnings = validate_manifest(data)
-    return {"success": len(errors) == 0, "errors": errors, "warnings": warnings}
-
-
-@router.post("/init_from_manifest")
-def api_init_from_manifest(req: InitFromManifestRequest, force: bool = False):
-    import yaml
-    from ..manifest import validate_manifest
-    from ..onboarding import init_study_from_manifest_dict
-    
-    try:
-        data = yaml.safe_load(req.yaml)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Invalid YAML structure: {str(e)}")
-        
-    if not isinstance(data, dict):
-        raise HTTPException(status_code=400, detail="Manifest root must be a dictionary")
-
-    errors, warnings = validate_manifest(data)
-    if errors:
-        return {"success": False, "errors": errors, "warnings": warnings}
-
-    try:
-        result = init_study_from_manifest_dict(data, force=force)
-        return {"success": True, "study_name": data["study_name"], "message": result, "warnings": warnings}
-    except ValueError as ve:
-        raise HTTPException(status_code=400, detail=str(ve))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return {
+        "study_name": study_name,
+        "health_tier": health_tier,
+        "health_reason": health_reason,
+        "trials_evaluated": trials_evaluated,
+    }
 
 
 @router.get("/studies")
@@ -303,41 +136,10 @@ def api_list_studies():
         return {"success": False, "error": str(e)}
 
 
-@router.get("/study_setup")
-def api_study_setup(study_name: str):
-    try:
-        with get_db_session() as session:
-            context_row = session.query(SystemConfiguration).filter_by(
-                study_name=study_name, config_key="project_context"
-            ).first()
-            hpo_config_row = session.query(SystemConfiguration).filter_by(
-                study_name=study_name, config_key="hpo_config"
-            ).first()
-            context_val = context_row.config_value if context_row else None
-            hpo_config_val = hpo_config_row.config_value if hpo_config_row else None
-            
-        context = json.loads(context_val) if context_val else {}
-        hpo_config = json.loads(hpo_config_val) if hpo_config_val else {}
-        
-        is_reference = (study_name == "bridge_crack_study") and ("worker_entrypoint" not in context)
-        
-        return {
-            "success": True,
-            "study_name": study_name,
-            "worker_entrypoint": context.get("worker_entrypoint"),
-            "worker_env": context.get("worker_env"),
-            "is_reference": is_reference,
-            "manifest_metrics": hpo_config.get("manifest_metrics"),
-            "colab_snippet": context.get("colab_snippet")
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @router.get("/study_details")
 def api_study_details(study_name: str):
     try:
-        study = get_or_create_study(study_name)
+        study = load_study(study_name)
 
         with get_db_session() as session:
             _reap_expired_leases(study, study_name, session)
@@ -374,8 +176,8 @@ def api_study_details(study_name: str):
         hpo_config = load_hpo_config(study_name)
         space = load_search_space(study_name)
         ev = hpo_config.get("eval_protocol", {})
-        dice_fixed_attr = ev.get("fixed_dice_attr", "dice_eval_fixed")
-        bce_fixed_attr = ev.get("fixed_bce_attr", "bce_eval_fixed")
+        score_fixed_attr = ev.get("fixed_score_attr", "score_eval_fixed")
+        loss_fixed_attr = ev.get("fixed_loss_attr", "loss_eval_fixed")
         train_param = ev.get("train_resolution_param", "resolution")
 
         trials_list = []
@@ -387,9 +189,12 @@ def api_study_details(study_name: str):
             if not history and t._trial_id in metrics_dict:
                 history = metrics_dict[t._trial_id]
 
-            metrics = _trial_metric_snapshot(t, history, dice_fixed_attr, bce_fixed_attr, study.directions)
+            metrics = _trial_metric_snapshot(t, history, score_fixed_attr, loss_fixed_attr, study.directions)
             train_res = _effective_train_resolution(t, hpo_config, space)
             norm_params = normalize_trial_params(dict(t.params), hpo_config)
+            for k, v in _fixed_categorical_params(space).items():
+                if k not in norm_params:
+                    norm_params[k] = v
             if train_res is not None and train_param not in norm_params:
                 norm_params[train_param] = train_res
 
@@ -404,12 +209,8 @@ def api_study_details(study_name: str):
                 "params_display": {
                     param_display_name(k, hpo_config): v for k, v in norm_params.items()
                 },
-                "bce": metrics["bce"],
-                "dice": metrics["dice"],
                 "score": metrics["score"],
                 "loss": metrics["loss"],
-                "dice_eval_fixed": metrics["dice_eval_fixed"],
-                "bce_eval_fixed": metrics["bce_eval_fixed"],
                 "score_eval_fixed": metrics["score_eval_fixed"],
                 "loss_eval_fixed": metrics["loss_eval_fixed"],
                 "train_resolution": train_res,
@@ -441,8 +242,8 @@ def api_study_details(study_name: str):
             pareto_trial_numbers = _pareto_trial_numbers_deploy_aware(study, hpo_config)
         
         insights = _study_eval_insights(study, hpo_config)
-        review = compute_review_heuristics(study, insights, hpo_config, study_name)
         n_complete = sum(1 for t in study.trials if t.state == TrialState.COMPLETE)
+        health_tier, health_reason = compute_health_tier(study, study_name)
 
         return {
             "study_name": study_name,
@@ -452,10 +253,9 @@ def api_study_details(study_name: str):
             "study_directions": [d.name for d in study.directions],
             "hpo_config": hpo_config,
             "eval_insights": insights,
-            "review": review,
+            "health": {"tier": health_tier, "reason": health_reason},
             "statistical_confidence": compute_statistical_confidence(n_complete),
             "completed_count": n_complete,
-            "past_reviews": get_recent_study_reviews(study_name, limit=10),
         }
     except Exception as e:
         traceback.print_exc()
@@ -465,12 +265,11 @@ def api_study_details(study_name: str):
 @router.get("/fanova")
 def api_fanova(study_name: str):
     try:
-        study = get_or_create_study(study_name)
+        study = load_study(study_name)
         complete_trials = [t for t in study.trials if t.state == TrialState.COMPLETE]
         if len(complete_trials) < 2:
             return {"success": False, "message": "Need at least 2 completed trials for importance analysis"}
         config = load_hpo_config(study_name)
-        from ..hpo_coordinator import get_fanova_importances
         display = get_fanova_importances(study, config)
 
         return {"success": True, "importances": display}
@@ -478,11 +277,11 @@ def api_fanova(study_name: str):
         return {"success": False, "message": str(e)}
 
 
-@router.get("/review_packet")
-def api_review_packet(study_name: str):
+@router.get("/study_packet")
+def api_study_packet(study_name: str):
     """Read-only context for the IDE coordinator: Pareto, fANOVA, eval insights, drift reasons."""
     try:
-        return build_review_packet(study_name)
+        return build_study_packet(study_name)
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
@@ -492,14 +291,15 @@ def api_review_packet(study_name: str):
 def api_pareto_front(study_name: str):
     """Exposes Pareto front trials for export in the GUI dashboard."""
     try:
-        study = get_or_create_study(study_name)
+        study = load_study(study_name)
         if len(study.directions) < 2:
             return {"success": True, "pareto_front": []}
             
         hpo_config = load_hpo_config(study_name)
+        space = load_search_space(study_name)
         ev = hpo_config.get("eval_protocol", {})
-        dice_fixed_attr = ev.get("fixed_dice_attr", "dice_eval_fixed")
-        bce_fixed_attr = ev.get("fixed_bce_attr", "bce_eval_fixed")
+        score_fixed_attr = ev.get("fixed_score_attr", "score_eval_fixed")
+        loss_fixed_attr = ev.get("fixed_loss_attr", "loss_eval_fixed")
         
         with get_db_session() as session:
             metrics = session.query(TrialResult).filter_by(study_name=study_name).all()
@@ -512,14 +312,15 @@ def api_pareto_front(study_name: str):
             if not history and t._trial_id in metrics_dict:
                 history = metrics_dict[t._trial_id]
                 
-            metrics_vals = _trial_metric_snapshot(t, history, dice_fixed_attr, bce_fixed_attr, study.directions)
+            metrics_vals = _trial_metric_snapshot(t, history, score_fixed_attr, loss_fixed_attr, study.directions)
             norm_params = normalize_trial_params(dict(t.params), hpo_config)
+            for k, v in _fixed_categorical_params(space).items():
+                if k not in norm_params:
+                    norm_params[k] = v
             
             pareto_trials.append({
                 "number": t.number,
                 "trial_id": t._trial_id,
-                "bce": metrics_vals["bce"],
-                "dice": metrics_vals["dice"],
                 "score": metrics_vals["score"],
                 "loss": metrics_vals["loss"],
                 "params": norm_params
@@ -531,94 +332,11 @@ def api_pareto_front(study_name: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/dismiss_coordinator_nudge")
-def api_dismiss_coordinator_nudge(study_name: str):
-    """Dismisses the coordinator nudge for the current trial window by persisting it in SQLite."""
-    try:
-        study = get_or_create_study(study_name)
-        trials_evaluated = count_evaluated_trials(study)
-        
-        with get_db_session() as session:
-            status = get_or_create_study_status(session, study_name)
-            status.nudge_dismissed_trials = trials_evaluated
-            session.commit()
-            
-        return {"success": True, "dismissed_trials": trials_evaluated}
-    except Exception as e:
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @router.get("/study_cards")
 def api_get_study_cards(study_name: Optional[str] = None):
     """Exposes generated study cards and their markdown content for dashboard retrieval."""
     try:
         return {"success": True, "cards": load_study_cards(study_name)}
-    except Exception as e:
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/agent_review")
-def api_agent_review(req: AgentReviewRequest):
-    """Persist a coordinator review. Idempotent per trial window unless force=True."""
-    try:
-        study = load_study(req.study_name)
-        space = load_search_space(req.study_name)
-        trials_evaluated = count_evaluated_trials(study)
-
-        if req.manual_trial:
-            from ..hpo_coordinator import _validate_manual_parameters
-            val_res = _validate_manual_parameters(req.manual_trial, req.study_name)
-            if not val_res["ok"]:
-                with get_db_session() as session:
-                    session.add(InvalidProposal(
-                        study_name=req.study_name,
-                        model_version=req.model_version or "coordinator",
-                        prompt_strategy=req.prompt_strategy or "coordinator_review",
-                        invalid_parameters=json.dumps(req.manual_trial),
-                        validation_error=val_res["error"]
-                    ))
-                return {"success": False, "error": f"Invalid manual parameters: {val_res['error']}"}
-
-        validation = validate_review_fields(req.estimated_score_improvement, req.cited_best_trial)
-        if not validation["ok"]:
-            return {"success": False, "error": "; ".join(validation["errors"])}
-        result = save_study_review(
-            req.study_name,
-            req.summary,
-            health_rating=req.health_rating,
-            policy_action=req.policy_action or "no_change",
-            model_version=req.model_version or "coordinator",
-            prompt_strategy=req.prompt_strategy or "coordinator_review",
-            reasons=req.reasons,
-            trials_evaluated=trials_evaluated,
-            estimated_score_improvement=req.estimated_score_improvement,
-            cited_best_trial=req.cited_best_trial,
-            force=bool(req.force),
-        )
-
-        applied = {}
-        if not result.get("duplicate"):
-            if req.search_space_patch:
-                applied["search_space"] = _apply_search_space_patch(req.search_space_patch, space, req.study_name)
-            if req.manual_trial:
-                applied["manual_trial"] = _enqueue_manual_trial(study, req.manual_trial, space, req.summary)
-
-        result["applied"] = applied
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/flag_review")
-def api_flag_review(review_id: int, flagged: bool = True):
-    """Mark a coordinator review as low-quality (excluded from accuracy MAE)."""
-    try:
-        return flag_study_review(review_id, flagged=flagged)
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
@@ -656,7 +374,7 @@ def api_config_audit(study_name: Optional[str] = None):
     db_space = load_search_space(study_name)
 
     try:
-        study = get_or_create_study(study_name)
+        study = load_study(study_name)
         for t in study.trials:
             if t.state not in (TrialState.COMPLETE, TrialState.RUNNING):
                 continue
@@ -699,42 +417,67 @@ def api_config_audit(study_name: Optional[str] = None):
     return report
 
 
-@router.get("/metrics/coordinator")
-def api_metrics_coordinator(study_name: Optional[str] = None):
-    if not study_name:
-        study_name = settings.study_name
-    with get_db_session() as session:
-        rows = session.query(CoordinatorMetric).filter_by(study_name=study_name).all()
-        return {"success": True, "metrics": [r.to_dict() for r in rows]}
+@router.post("/quickstart_demo")
+def api_quickstart_demo(request: Request):
+    from ..onboarding import init_study_from_manifest_dict
+    from threading import Thread
+    from simulators.training_worker import run_training_worker
+
+    DEMO_STUDY = "demo_segmentation_study"
+
+    # If the demo study already exists and has trials, just redirect — no re-spawn needed
+    try:
+        existing = optuna.load_study(study_name=DEMO_STUDY, storage=settings.database_url)
+        if len(existing.trials) > 0:
+            return {"success": True, "study_name": DEMO_STUDY}
+    except KeyError:
+        pass  # Study doesn't exist yet — proceed
+
+    DEMO_MANIFEST = {
+        "study_name": DEMO_STUDY,
+        "metrics": {
+            "primary_score": "score",
+            "objectives": [
+                {"name": "loss", "direction": "minimize", "label": "Loss"},
+                {"name": "score", "direction": "maximize", "label": "Score"},
+            ],
+        },
+        "params": [
+            {"name": "learning_rate", "type": "float_log", "min": 0.0001, "max": 0.1},
+            {"name": "batch_size", "type": "categorical", "options": [4, 8, 16, 32]},
+            {"name": "resolution", "type": "categorical", "options": [256, 512, 1024]},
+            {"name": "loss_weight_ratio", "type": "float", "min": 0.0, "max": 1.0},
+            {"name": "model_capacity", "type": "categorical", "options": ["narrow", "wide"]},
+        ],
+        "worker": {"entrypoint": "python simulators/training_worker.py"},
+    }
+
+    init_study_from_manifest_dict(DEMO_MANIFEST, force=True)
+
+    broker_url = settings.broker_url or str(request.base_url).rstrip("/")
+    Thread(
+        target=run_training_worker,
+        args=(DEMO_STUDY,),
+        kwargs={"max_trials": 5, "broker_url": broker_url},
+        daemon=True,
+    ).start()
+
+    return {"success": True, "study_name": DEMO_STUDY}
 
 
-@router.get("/metrics/suggest")
-def api_metrics_suggest(study_name: Optional[str] = None):
-    if not study_name:
-        study_name = settings.study_name
-    with get_db_session() as session:
-        rows = session.query(SuggestMetric).filter_by(study_name=study_name).all()
-        return {"success": True, "metrics": [r.to_dict() for r in rows]}
-
-
-@router.get("/mcp_info")
-def api_mcp_info():
+@router.get("/worker_snippet")
+def api_worker_snippet(study_name: str):
+    broker_url = settings.broker_url or "http://localhost:8000"
+    secret_token = settings.secret_token
     return {
         "success": True,
-        "mcp_server_name": "pathfinder",
-        "active_study": settings.study_name,
-        "mcp_tools": [
-            "initialize_study",
-            "get_study_data",
-            "validate_search_space",
-            "update_search_space",
-            "delete_study",
-            "generate_model_card",
-            "submit_agent_review",
-            "validate_integration",
-            "get_study_cards",
-            "validate_manifest",
-            "init_from_manifest",
-            "export_manifest",
-        ]
+        "broker_url": broker_url,
+        "study_name": study_name,
+        "auth_required": bool(secret_token),
+        "snippet": (
+            f"export HPO_BROKER_URL={broker_url}\n"
+            f"export HPO_STUDY_NAME={study_name}\n"
+            + (f"export HPO_SECRET_TOKEN={secret_token}\n" if secret_token else "")
+            + "python your_worker.py"
+        ),
     }

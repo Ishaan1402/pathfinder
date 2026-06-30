@@ -2,7 +2,7 @@ import os
 from typing import Optional, List
 
 class Settings:
-    DEFAULT_DB_FILENAME = "hpo_studies.db"
+    DEFAULT_DB_FILENAME = ".data/hpo_studies.db"
 
     @property
     def database_url(self) -> str:

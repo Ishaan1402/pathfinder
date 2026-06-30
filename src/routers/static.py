@@ -40,13 +40,6 @@ def get_styles():
         )
     raise HTTPException(status_code=404, detail="styles.css not found")
 
-@router.get("/colab_worker.py")
-def get_colab_worker():
-    worker_path = os.path.join(_base_dir, "colab_worker.py")
-    if os.path.exists(worker_path):
-        return FileResponse(worker_path, media_type="text/x-python", filename="colab_worker.py")
-    raise HTTPException(status_code=404, detail="colab_worker.py not found")
-
 @router.get("/hpo_client.py")
 def get_hpo_client():
     client_path = os.path.join(_base_dir, "src", "hpo_client.py")
