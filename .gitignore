@@ -40,3 +40,9 @@ pending_changes.json
 # Build artifacts
 *.egg-info/
 
+# Generated model cards
+studies/
+
+# Default database location
+.data/
+

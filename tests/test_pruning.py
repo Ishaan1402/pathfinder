@@ -54,16 +54,16 @@ class TestPruning(unittest.TestCase):
         raise ValueError(f"Trial #{trial_number} not found")
 
     def test_composite_score_thin_data(self):
-        """Less than 10 completed/running trials -> returns raw score (no Z-score)."""
+        """Less than 10 completed/running trials -> returns (score - loss) composite."""
         self.study.enqueue_trial({"learning_rate": 1e-3, "batch_size": 16})
         t = self.study.ask()
         trial_number = t.number
-        history = [{"epoch": 1, "score": 0.5, "loss": 0.5, "dice": 0.5, "bce": 0.5}]
+        history = [{"epoch": 1, "score": 0.5, "loss": 0.5}]
         self.study._storage.set_trial_user_attr(t._trial_id, "history", history)
-
+    
         frozen = self._get_frozen_trial(trial_number)
         score = _epoch_composite_score(self.study, frozen, 1, {"enabled": False})
-        self.assertEqual(score, 0.5)
+        self.assertEqual(score, 0.0)  # 0.5 - 0.5 = 0.0
 
     def test_composite_score_zscore_and_zero_variance_clamp(self):
         """11 trials with identical scores (zero variance) -> Z-score with epsilon clamp returns 0.0."""
@@ -71,7 +71,7 @@ class TestPruning(unittest.TestCase):
         for i in range(11):
             self.study.enqueue_trial({"learning_rate": 1e-3, "batch_size": 16})
             t = self.study.ask()
-            self.study._storage.set_trial_user_attr(t._trial_id, "history", [{"epoch": 1, "score": 0.8, "loss": 0.2, "dice": 0.8, "bce": 0.2}])
+            self.study._storage.set_trial_user_attr(t._trial_id, "history", [{"epoch": 1, "score": 0.8, "loss": 0.2}])
             if i < 10:
                 self.study.tell(t.number, [0.2, 0.8])
             else:
@@ -84,17 +84,17 @@ class TestPruning(unittest.TestCase):
 
     def test_composite_score_zscore_normal_variance(self):
         """11 trials with varying scores -> Z-score normalization produces meaningful non-zero result."""
-        dice_scores = [0.3, 0.4, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85]
-        bce_losses =  [0.7, 0.6, 0.5, 0.45, 0.4, 0.35, 0.3, 0.25, 0.2, 0.15]
+        score_vals = [0.3, 0.4, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85]
+        loss_vals =  [0.7, 0.6, 0.5, 0.45, 0.4, 0.35, 0.3, 0.25, 0.2, 0.15]
 
         for i in range(10):
             self.study.enqueue_trial({"learning_rate": 1e-3, "batch_size": 16})
             t = self.study.ask()
             self.study._storage.set_trial_user_attr(
                 t._trial_id, "history",
-                [{"epoch": 1, "score": dice_scores[i], "loss": bce_losses[i], "dice": dice_scores[i], "bce": bce_losses[i]}]
+                [{"epoch": 1, "score": score_vals[i], "loss": loss_vals[i]}]
             )
-            self.study.tell(t.number, [bce_losses[i], dice_scores[i]])
+            self.study.tell(t.number, [loss_vals[i], score_vals[i]])
 
         # 11th trial — above-average (score=0.9, loss=0.1)
         self.study.enqueue_trial({"learning_rate": 1e-3, "batch_size": 16})
@@ -102,7 +102,7 @@ class TestPruning(unittest.TestCase):
         outlier_number = outlier.number
         self.study._storage.set_trial_user_attr(
             outlier._trial_id, "history",
-            [{"epoch": 1, "score": 0.9, "loss": 0.1, "dice": 0.9, "bce": 0.1}]
+            [{"epoch": 1, "score": 0.9, "loss": 0.1}]
         )
 
         frozen_outlier = self._get_frozen_trial(outlier_number)
@@ -116,7 +116,7 @@ class TestPruning(unittest.TestCase):
         weak_number = weak.number
         self.study._storage.set_trial_user_attr(
             weak._trial_id, "history",
-            [{"epoch": 1, "score": 0.2, "loss": 0.8, "dice": 0.2, "bce": 0.8}]
+            [{"epoch": 1, "score": 0.2, "loss": 0.8}]
         )
 
         frozen_weak = self._get_frozen_trial(weak_number)

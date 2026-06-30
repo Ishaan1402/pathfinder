@@ -244,6 +244,15 @@ function hideEmptyState(containerId, recreateCanvas = false) {
     }
 }
 
+function initHpoMarks() {
+    const svg = window.HPOState?.constants?.HPO_MARK_SVG;
+    if (!svg) return;
+    document.querySelectorAll(".brand-mark").forEach((el) => {
+        el.innerHTML = svg;
+    });
+}
+
 window.showEmptyState = showEmptyState;
 window.hideEmptyState = hideEmptyState;
+window.initHpoMarks = initHpoMarks;
 

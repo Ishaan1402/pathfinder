@@ -6,10 +6,10 @@ import optuna
 from optuna.trial import TrialState
 
 from src.db_manager import get_db_session, get_or_create_study_status
-from src.schema import TrialResult, AgentReasoningLog, StudyStatus, TrialLease
+from src.schema import TrialResult
 from src.hpo_config import load_hpo_config
 from src.metrics import get_score, get_loss, loss_objective_index, score_objective_index, TERMINAL_STATES, has_invalid_metrics
-from src.hpo_coordinator import compute_health_tier, write_ide_status_file, backfill_review_outcomes
+from src.health import compute_health_tier, write_ide_status_file
 from src.leases import _lease_is_owned, delete_lease_by_trial_id
 from src.pruning import _epoch_composite_score, _pruning_peer_trials
 from src.suggest import load_study
@@ -149,8 +149,6 @@ def handle_api_report_epoch(req: ReportEpochRequest):
         # Save user attributes for real-time dashboard monitoring
         study._storage.set_trial_user_attr(trial_obj._trial_id, "latest_score", final_score)
         study._storage.set_trial_user_attr(trial_obj._trial_id, "latest_loss", final_loss)
-        study._storage.set_trial_user_attr(trial_obj._trial_id, "latest_dice", final_score)
-        study._storage.set_trial_user_attr(trial_obj._trial_id, "latest_bce", final_loss)
         study._storage.set_trial_user_attr(trial_obj._trial_id, "latest_epoch", req.epoch)
         study._storage.set_trial_user_attr(trial_obj._trial_id, "gpu_memory", req.gpu_memory)
         study._storage.set_trial_user_attr(trial_obj._trial_id, "speed_ips", req.speed_ips)
@@ -159,14 +157,14 @@ def handle_api_report_epoch(req: ReportEpochRequest):
         ev = hpo_config.get("eval_protocol", {})
         if final_score_fixed is not None:
             study._storage.set_trial_user_attr(
-                trial_obj._trial_id, ev.get("fixed_dice_attr", "dice_eval_fixed"), final_score_fixed
+                trial_obj._trial_id, ev.get("fixed_score_attr", "score_eval_fixed"), final_score_fixed
             )
             study._storage.set_trial_user_attr(
                 trial_obj._trial_id, "score_eval_fixed", final_score_fixed
             )
         if final_loss_fixed is not None:
             study._storage.set_trial_user_attr(
-                trial_obj._trial_id, ev.get("fixed_bce_attr", "bce_eval_fixed"), final_loss_fixed
+                trial_obj._trial_id, ev.get("fixed_loss_attr", "loss_eval_fixed"), final_loss_fixed
             )
             study._storage.set_trial_user_attr(
                 trial_obj._trial_id, "loss_eval_fixed", final_loss_fixed
@@ -178,15 +176,11 @@ def handle_api_report_epoch(req: ReportEpochRequest):
             "epoch": req.epoch,
             "score": final_score,
             "loss": final_loss,
-            "dice": final_score,
-            "bce": final_loss
         }
         if final_score_fixed is not None:
             epoch_entry["score_eval_fixed"] = final_score_fixed
-            epoch_entry["dice_eval_fixed"] = final_score_fixed
         if final_loss_fixed is not None:
             epoch_entry["loss_eval_fixed"] = final_loss_fixed
-            epoch_entry["bce_eval_fixed"] = final_loss_fixed
         history.append(epoch_entry)
         study._storage.set_trial_user_attr(trial_obj._trial_id, "history", history)
 
@@ -310,12 +304,15 @@ def handle_api_complete_trial(req: CompleteTrialRequest):
                     detail="Rejecting complete: trial reported 0.0 for both score and loss. Likely training did not run.",
                 )
         
-        invalid_metric = has_invalid_metrics(score=final_score, loss=final_loss, score_eval_fixed=final_score_fixed, loss_eval_fixed=final_loss_fixed)
-        if invalid_metric:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Rejecting complete: {invalid_metric} is NaN or Inf, which is invalid.",
-            )
+        # NaN/Inf rejection only for COMPLETE state — FAIL trials must pass through
+        # so the failure-tagging and health-monitoring logic below can record them.
+        if t_state == TrialState.COMPLETE:
+            invalid_metric = has_invalid_metrics(score=final_score, loss=final_loss, score_eval_fixed=final_score_fixed, loss_eval_fixed=final_loss_fixed)
+            if invalid_metric:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Rejecting complete: {invalid_metric} is NaN or Inf, which is invalid.",
+                )
 
         # Check trial metrics health
         health_tier, health_reason = check_trial_health(study, final_score, final_loss, req.history)
@@ -338,14 +335,14 @@ def handle_api_complete_trial(req: CompleteTrialRequest):
 
                 if final_score_fixed is not None:
                     study._storage.set_trial_user_attr(
-                        trial_obj._trial_id, ev.get("fixed_dice_attr", "dice_eval_fixed"), final_score_fixed
+                trial_obj._trial_id, ev.get("fixed_score_attr", "score_eval_fixed"), final_score_fixed
                     )
                     study._storage.set_trial_user_attr(
                         trial_obj._trial_id, "score_eval_fixed", final_score_fixed
                     )
                 if final_loss_fixed is not None:
                     study._storage.set_trial_user_attr(
-                        trial_obj._trial_id, ev.get("fixed_bce_attr", "bce_eval_fixed"), final_loss_fixed
+                        trial_obj._trial_id, ev.get("fixed_loss_attr", "loss_eval_fixed"), final_loss_fixed
                     )
                     study._storage.set_trial_user_attr(
                         trial_obj._trial_id, "loss_eval_fixed", final_loss_fixed
@@ -443,34 +440,7 @@ def handle_api_complete_trial(req: CompleteTrialRequest):
 
         is_minimize_only = len(study.directions) == 1 and study.directions[0] == optuna.study.StudyDirection.MINIMIZE
 
-        try:
-            prior_trials = [t for t in study.trials if t.number < trial_obj.number and t.state == TrialState.COMPLETE]
-            best_prior_score = 0.0
-            
-            if prior_trials:
-                if is_minimize_only:
-                    losses = [get_loss(t, study) for t in prior_trials]
-                    losses = [l for l in losses if l is not None]
-                    best_prior_score = min(losses) if losses else 0.0
-                else:
-                    scores = [get_score(t, study) for t in prior_trials]
-                    scores = [s for s in scores if s is not None]
-                    best_prior_score = max(scores) if scores else 0.0
 
-            if is_minimize_only:
-                safe_final_loss = final_loss if final_loss is not None else 0.0
-                actual_improvement = best_prior_score - safe_final_loss
-            else:
-                safe_final_score = final_score if final_score is not None else 0.0
-                actual_improvement = safe_final_score - best_prior_score
-            with get_db_session() as session:
-                reasoning_log = session.query(AgentReasoningLog).filter_by(trial_id=req.trial_id).first()
-                if reasoning_log:
-                    reasoning_log.actual_score_improvement = actual_improvement
-                    session.commit()
-        except Exception as reas_err:
-            print(f"Error updating reasoning logs: {reas_err}")
-            
         # Compute health tier and update study status
         try:
             health_tier, health_reason = compute_health_tier(study, req.study_name)
@@ -482,11 +452,6 @@ def handle_api_complete_trial(req: CompleteTrialRequest):
             write_ide_status_file(req.study_name, health_tier, health_reason, study)
         except Exception as err:
             print(f"Error updating coordinator health status: {err}")
-
-        try:
-            backfill_review_outcomes(req.study_name)
-        except Exception as bf_err:
-            print(f"Error backfilling review outcomes: {bf_err}")
 
         # Fetch completed scores for sparkline
         completed_scores = []
@@ -505,8 +470,6 @@ def handle_api_complete_trial(req: CompleteTrialRequest):
             "success": True,
             "completed_scores": completed_scores,
             "best_score": best_score,
-            "completed_dices": completed_scores,
-            "best_dice": best_score,
             "trial_number": trial_obj.number
         }
     except HTTPException as he:

@@ -13,8 +13,8 @@ function computeAxesBounds(trials) {
     paramKeys.forEach(k => {
         axes.push({ key: k, label: k.replace(/_/g, " "), type: "param" });
     });
-    axes.push({ key: "dice", label: window.HPOState.data.hpoConfig?.metric_score_label || "Dice", type: "metric" });
-    axes.push({ key: "bce", label: window.HPOState.data.hpoConfig?.metric_loss_label || "BCE", type: "metric" });
+    axes.push({ key: "score", label: window.HPOState.data.hpoConfig?.metric_score_label || "Score", type: "metric" });
+    axes.push({ key: "loss", label: window.HPOState.data.hpoConfig?.metric_loss_label || "Loss", type: "metric" });
 
     axes.forEach(axis => {
         if (axis.type === "param") {

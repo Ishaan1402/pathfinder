@@ -5,22 +5,16 @@ from typing import Optional, Dict, Any, List
 
 logger = logging.getLogger(__name__)
 from fastapi import HTTPException
-import optuna
-from optuna.distributions import CategoricalDistribution
 from optuna.trial import TrialState
 
 from src.db_manager import get_db_session
-from src.schema import SystemConfiguration
+from src.schema import SystemConfiguration, CompactedPacket
 from src.hpo_config import load_hpo_config
-from src.hpo_coordinator import mark_review_applied
 
 # Default search space definition
 DEFAULT_SEARCH_SPACE = {
     "learning_rate": {"min": 1e-5, "max": 1e-2, "type": "float_log"},
-    "batch_size": {"options": [2, 4, 8, 16, 32, 64], "active": [2, 4, 8, 16, 32, 64], "type": "categorical"},
-    "resolution": {"options": [256, 512, 1024], "active": [256, 512, 1024], "type": "categorical"},
-    "model_capacity": {"options": ["narrow", "wide"], "active": ["narrow", "wide"], "type": "categorical"},
-    "loss_weight_ratio": {"min": 0.0, "max": 1.0, "type": "float"},
+    "batch_size": {"options": [16, 32, 64, 128], "active": [16, 32, 64, 128], "type": "categorical"},
 }
 
 
@@ -40,7 +34,9 @@ def load_search_space(study_name: Optional[str] = None) -> Dict[str, Any]:
     from .settings import settings
     if not study_name:
         study_name = settings.study_name
-    
+    if not study_name or not study_name.strip():
+        return DEFAULT_SEARCH_SPACE.copy()
+
     try:
         with get_db_session() as session:
             row = session.query(SystemConfiguration).filter_by(
@@ -64,6 +60,8 @@ def save_search_space(space: Dict[str, Any], study_name: Optional[str] = None):
     from .settings import settings
     if not study_name:
         study_name = settings.study_name
+    if not study_name or not study_name.strip():
+        raise ValueError("study_name cannot be empty.")
     try:
         with get_db_session() as session:
             row = session.query(SystemConfiguration).filter_by(
@@ -81,6 +79,13 @@ def save_search_space(space: Dict[str, Any], study_name: Optional[str] = None):
                 ))
     except Exception as e:
         print(f"Error saving search space to DB: {e}")
+
+    # Bust cached study packets — search space changes invalidate analytics
+    try:
+        with get_db_session() as session:
+            session.query(CompactedPacket).filter_by(study_name=study_name).delete()
+    except Exception:
+        pass
 
 
 def _expected_search_params(space: Dict[str, Any]) -> List[str]:
@@ -103,14 +108,22 @@ def _worker_ready_params(trial, space: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _cleanup_stuck_running_trials(study, space: Dict[str, Any]) -> None:
-    """Fail RUNNING trials that never received a full parameter set (crashed mid-suggest)."""
+    """Fail RUNNING trials that never received a full parameter set (crashed mid-suggest).
+
+    Trials that started less than LEASE_TTL_SECONDS ago are skipped to avoid a race
+    where worker A's trial was just created by ``study.ask()`` but hasn't yet had
+    its parameters written when worker B's ``/api/suggest_trial`` triggers cleanup.
+    """
+    from .leases import LEASE_TTL_SECONDS
+    from datetime import datetime, timedelta, timezone
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=LEASE_TTL_SECONDS)
     for t in list(study.trials):
-        if t.state == TrialState.RUNNING and not _trial_has_full_params(
-            _worker_ready_params(t, space), space
-        ):
-            print(
-                f"Failing stuck RUNNING trial #{t.number} (incomplete params: {list(t.params.keys())})"
-            )
+        if t.state != TrialState.RUNNING:
+            continue
+        if not _trial_has_full_params(_worker_ready_params(t, space), space):
+            if t.datetime_start is not None and t.datetime_start.replace(tzinfo=None) > cutoff:
+                continue
+            print(f"Failing stuck RUNNING trial #{t.number} (incomplete params: {list(t.params.keys())})")
             try:
                 study.tell(t.number, state=TrialState.FAIL)
             except Exception as exc:
@@ -152,21 +165,6 @@ def _finalize_trial_params(params: Dict[str, Any], space: Dict[str, Any]) -> Dic
     return out
 
 
-def _persist_fixed_categorical_params(study, trial, space: Dict[str, Any]) -> None:
-    """Write single-active categoricals into Optuna storage so dashboards see them."""
-    fixed = _fixed_categorical_params(space)
-    for param, value in fixed.items():
-        if param in trial.params:
-            continue
-        cfg = space.get(param, {})
-        choices = tuple(_study_categorical_choices(study, param, cfg))
-        dist = CategoricalDistribution(choices=choices)
-        # Optuna RDB storage expects internal index (0..n-1), not external choice value.
-        internal = float(dist.to_internal_repr(value))
-        study._storage.set_trial_param(trial._trial_id, param, internal, dist)
-        study._storage.set_trial_user_attr(trial._trial_id, param, value)
-
-
 def _enqueue_single_active_categoricals(study, space: Dict[str, Any]) -> None:
     """Optional hint for Optuna; workers still receive fixed values via _finalize_trial_params."""
     fixed = _fixed_categorical_params(space)
@@ -185,7 +183,7 @@ def _suggest_categorical_compatible(study, trial, param: str, cfg: Dict[str, Any
     trial.suggest_categorical(param, choices)
 
 
-def _validate_params_against_active(params: Dict[str, Any], space: Dict[str, Any]) -> List[str]:
+def _validate_categorical_against_active(params: Dict[str, Any], space: Dict[str, Any]) -> List[str]:
     """Return list of human-readable violations when TPE samples outside active constraints."""
     errors = []
     for param, cfg in space.items():
@@ -210,12 +208,14 @@ def suggest_params_from_space(study, trial, space: Dict[str, Any]) -> Dict[str, 
             trial.suggest_float(param, float(cfg["min"]), float(cfg["max"]), log=True)
         elif ptype == "float":
             trial.suggest_float(param, float(cfg["min"]), float(cfg["max"]))
+        elif ptype == "int":
+            trial.suggest_int(param, int(cfg["min"]), int(cfg["max"]))
         elif ptype == "categorical":
             _suggest_categorical_compatible(study, trial, param, cfg)
         else:
             raise ValueError(f"Unsupported parameter type '{ptype}' for '{param}'.")
     params = _finalize_trial_params(trial.params, space)
-    violations = _validate_params_against_active(params, space)
+    violations = _validate_categorical_against_active(params, space)
     if violations:
         raise ValueError(
             "Sampled parameters outside active search bounds: "
@@ -246,7 +246,6 @@ def _apply_search_space_patch(patch: Dict[str, Any], space: Dict[str, Any], stud
             if "max" in new_val:
                 cfg["max"] = float(new_val["max"])
     save_search_space(space, study_name)
-    mark_review_applied(study_name)
     return "Search space updated."
 
 
@@ -301,40 +300,26 @@ def handle_api_update_search_space(space: Dict[str, Any], study_name: Optional[s
                 detail=f"Hyperparameter '{param_name}' is not recognized in the search space."
             )
             
-    # Save to pending_search_space in DB
-    try:
-        with get_db_session() as session:
-            # Check if there is already a pending configuration
-            pending_row = session.query(SystemConfiguration).filter_by(
-                study_name=study_name, config_key="pending_search_space"
-            ).first()
-            
-            if validated_proposals:
-                if pending_row:
-                    # Merge with existing pending configuration
-                    existing_pending = json.loads(pending_row.config_value)
-                    for key, val in validated_proposals.items():
-                        if key in existing_pending:
-                            existing_pending[key].update(val)
-                        else:
-                            existing_pending[key] = val
-                    pending_row.config_value = json.dumps(existing_pending)
-                    pending_row.version += 1
-                else:
-                    session.add(SystemConfiguration(
-                        study_name=study_name,
-                        config_key="pending_search_space",
-                        config_value=json.dumps(validated_proposals),
-                        version=1
-                    ))
-            else:
-                # If proposals are empty (reverted to current), delete pending row if it exists
-                if pending_row:
-                    session.delete(pending_row)
-            session.commit()
-    except HTTPException as he:
-        raise he
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to save pending changes: {str(e)}")
-        
-    return {"success": True, "space": current, "pending": validated_proposals}
+    # Apply validated proposals directly to active search space
+    if validated_proposals:
+        try:
+            for param_name, proposal in validated_proposals.items():
+                current[param_name].update(proposal)
+            # Validate min < max for all numeric params after merge
+            for param_name, cfg in current.items():
+                if not isinstance(cfg, dict) or cfg.get("type") not in ("float", "float_log", "int"):
+                    continue
+                lo = cfg.get("min")
+                hi = cfg.get("max")
+                if lo is not None and hi is not None and float(lo) >= float(hi):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Invalid bounds for '{param_name}': min ({lo}) must be strictly less than max ({hi}).",
+                    )
+            save_search_space(current, study_name)
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to update search space: {str(e)}")
+
+    return {"success": True, "space": current}

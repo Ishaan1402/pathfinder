@@ -17,7 +17,6 @@ DEFAULT_HPO_CONFIG: Dict[str, Any] = {
     "metric_loss_label": "Loss",
     "metric_score_label": "Score",
     "metric_names": {"score": "score", "loss": "loss"},
-    "desktop_notifications_enabled": False,
     "validation_rules": {
         "score_min": None,
         "loss_min": None,
@@ -28,10 +27,10 @@ DEFAULT_HPO_CONFIG: Dict[str, Any] = {
         "enabled": False,
         "fixed_resolution": None,
         "train_resolution_param": "resolution",
-        "fixed_dice_attr": "score_eval_fixed",
-        "fixed_bce_attr": "loss_eval_fixed",
-        "dice_train_label": "Score (train)",
-        "dice_fixed_label": "Score (eval)",
+        "fixed_score_attr": "score_eval_fixed",
+        "fixed_loss_attr": "loss_eval_fixed",
+        "score_train_label": "Score (train)",
+        "score_fixed_label": "Score (eval)",
         "use_fixed_metric_for_pruning": True,
         "prune_min_epoch": 5,
         "prune_compare_same_resolution_only": True,
@@ -45,7 +44,6 @@ DEFAULT_HPO_CONFIG: Dict[str, Any] = {
 LEGACY_DEFAULT_HPO_CONFIG: Dict[str, Any] = {
     "metric_loss_label": "BCE",
     "metric_score_label": "Dice",
-    "desktop_notifications_enabled": False,
     "validation_rules": {
         "score_min": 0.0,
         "loss_min": 0.0,
@@ -83,6 +81,8 @@ def load_hpo_config(study_name: Optional[str] = None) -> Dict[str, Any]:
     from .settings import settings
     if not study_name:
         study_name = settings.study_name
+    if not study_name or not study_name.strip():
+        return copy.deepcopy(DEFAULT_HPO_CONFIG)
 
     # Try loading study-specific config from DB
     data = None
@@ -103,7 +103,7 @@ def load_hpo_config(study_name: Optional[str] = None) -> Dict[str, Any]:
                 # If we fell back to _global and the current study is NOT a legacy U-Net study,
                 # check if the global config is legacy (version 1). If it is, ignore it to
                 # prevent legacy poisoning of generic studies.
-                if row.study_name == "_global" and study_name not in ("seg_v1", "bridge_crack_study"):
+                if row.study_name == "_global":
                     if loaded_data.get("config_version", 1) == 1:
                         loaded_data = None
                 if loaded_data:
@@ -113,16 +113,14 @@ def load_hpo_config(study_name: Optional[str] = None) -> Dict[str, Any]:
 
     # Fallback to loading default template from disk if DB fails or has no config
     if not data:
-        is_legacy = study_name in ("seg_v1", "bridge_crack_study")
-        data = LEGACY_DEFAULT_HPO_CONFIG if is_legacy else DEFAULT_HPO_CONFIG
+        data = DEFAULT_HPO_CONFIG
         # Seed it into DB for this study so it exists in DB
         try:
             save_hpo_config(data, study_name)
         except Exception as e:
             logger.warning(f"Failed to seed hpo_config in DB: {e}")
 
-    is_legacy_name = study_name in ("seg_v1", "bridge_crack_study")
-    config_version = data.get("config_version", 1 if is_legacy_name else 2)
+    config_version = data.get("config_version", 2)
     defaults = LEGACY_DEFAULT_HPO_CONFIG if config_version == 1 else DEFAULT_HPO_CONFIG
 
     try:
@@ -150,11 +148,12 @@ def save_hpo_config(config: Dict[str, Any], study_name: Optional[str] = None) ->
     from .settings import settings
     if not study_name:
         study_name = settings.study_name
+    if not study_name or not study_name.strip():
+        raise ValueError("study_name cannot be empty.")
 
     # Enforce config_version on save to prevent client downgrades
     config = dict(config)
-    is_legacy = study_name in ("seg_v1", "bridge_crack_study")
-    config["config_version"] = config.get("config_version", 1 if is_legacy else 2)
+    config["config_version"] = config.get("config_version", 2)
 
     try:
         from .db_manager import get_db_session
@@ -175,6 +174,15 @@ def save_hpo_config(config: Dict[str, Any], study_name: Optional[str] = None) ->
                 ))
     except Exception as e:
         print(f"Error saving hpo_config to DB: {e}")
+
+    # Bust cached study packets — config changes invalidate analytics
+    try:
+        from .db_manager import get_db_session
+        from .schema import CompactedPacket
+        with get_db_session() as session:
+            session.query(CompactedPacket).filter_by(study_name=study_name).delete()
+    except Exception:
+        pass
 
 
 def param_display_name(param: str, config: Optional[Dict[str, Any]] = None, study_name: Optional[str] = None) -> str:

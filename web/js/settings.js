@@ -1,48 +1,3 @@
-async function fetchPendingChanges(throwOnError = false) {
-    try {
-        const res = await fetch(`/api/pending_changes?study_name=${window.HPOState.session.studyName}`);
-        if (!res.ok) { if (throwOnError) throw new Error("HTTP " + res.status); return; }
-        const data = await res.json();
-        const banner = document.getElementById("pending-changes-banner");
-        const diffContainer = document.getElementById("pending-changes-diff");
-        if (!banner || !diffContainer) return;
-        if (data && data.proposed_changes) {
-            window.HPOState.data.pendingChanges = data.proposed_changes;
-            const current = window.HPOState.data.activeSearchSpace || {};
-            diffContainer.replaceChildren();
-            for (const [key, val] of Object.entries(data.proposed_changes)) {
-                const curVal = current[key];
-                if (!curVal) continue;
-                const infoLine = document.createElement("span");
-                infoLine.className = "diff-line info";
-                infoLine.textContent = `# Parameter: ${paramLabel(key)} (${key})`;
-                diffContainer.appendChild(infoLine);
-                if (curVal.type === "categorical") {
-                    const curActive = curVal.active || [], newActive = val.active || [];
-                    diffContainer.appendChild(Object.assign(document.createElement("span"), { className: "diff-line removed", textContent: `- active: [${curActive.join(", ")}]` }));
-                    diffContainer.appendChild(Object.assign(document.createElement("span"), { className: "diff-line added", textContent: `+ active: [${newActive.join(", ")}]` }));
-                } else {
-                    const curMin = curVal.min, curMax = curVal.max;
-                    const newMin = val.min !== undefined ? val.min : curMin;
-                    const newMax = val.max !== undefined ? val.max : curMax;
-                    if (curMin !== newMin || curMax !== newMax) {
-                        diffContainer.appendChild(Object.assign(document.createElement("span"), { className: "diff-line removed", textContent: `- range: [${curMin}, ${curMax}]` }));
-                        diffContainer.appendChild(Object.assign(document.createElement("span"), { className: "diff-line added", textContent: `+ range: [${newMin}, ${newMax}]` }));
-                    }
-                }
-            }
-            banner.classList.toggle("hidden", diffContainer.childNodes.length === 0);
-        } else {
-            window.HPOState.data.pendingChanges = null;
-            banner.classList.add("hidden");
-        }
-        renderHealthLatestAction();
-    } catch (err) {
-        console.error("Error fetching pending changes:", err);
-        if (throwOnError) throw err;
-    }
-}
-
 function populateEvalProtocolForm(config) {
     const ev = config?.eval_protocol || {};
     const vr = config?.validation_rules || {};
@@ -50,13 +5,12 @@ function populateEvalProtocolForm(config) {
     const setCheck = (id, val) => { const el = document.getElementById(id); if (el) el.checked = !!val; };
     set("eval-metric-loss-label", config?.metric_loss_label || "Loss");
     set("eval-metric-score-label", config?.metric_score_label || "Score");
-    setCheck("desktop-notifs-enabled", !!config?.desktop_notifications_enabled);
     setCheck("eval-enabled", ev.enabled);
     set("eval-fixed-resolution", ev.fixed_resolution ?? "");
     set("eval-train-res-param", ev.train_resolution_param || "resolution");
     set("eval-low-warn", ev.low_train_res_warning ?? "");
-    set("eval-score-train-label", ev.dice_train_label || "Score (train)");
-    set("eval-score-fixed-label", ev.dice_fixed_label || "Score (eval)");
+    set("eval-score-train-label", ev.score_train_label || "Score (train)");
+    set("eval-score-fixed-label", ev.score_fixed_label || "Score (eval)");
     setCheck("eval-prune-on-fixed", ev.use_fixed_metric_for_pruning);
     // Validation rules
     setCheck("validation-rules-enabled", !!vr.enabled);
@@ -85,8 +39,8 @@ async function saveEvalProtocol() {
             fixed_resolution: fixedRaw === "" || fixedRaw == null ? null : Number(fixedRaw),
             train_resolution_param: document.getElementById("eval-train-res-param")?.value || "resolution",
             low_train_res_warning: lowRaw === "" || lowRaw == null ? null : Number(lowRaw),
-            dice_train_label: document.getElementById("eval-score-train-label")?.value || "Score (train)",
-            dice_fixed_label: document.getElementById("eval-score-fixed-label")?.value || "Score (eval)",
+            score_train_label: document.getElementById("eval-score-train-label")?.value || "Score (train)",
+            score_fixed_label: document.getElementById("eval-score-fixed-label")?.value || "Score (eval)",
             use_fixed_metric_for_pruning: document.getElementById("eval-prune-on-fixed")?.checked || false,
         },
         validation_rules: {
@@ -113,49 +67,6 @@ async function saveEvalProtocol() {
         fetchStudyDetails();
         alert("Eval protocol saved.");
     } catch (err) { alert("Error saving eval protocol: " + err); }
-}
-
-async function saveIdeSettings() {
-    const payload = {
-        ...window.HPOState.data.hpoConfig,
-        desktop_notifications_enabled: !!document.getElementById("desktop-notifs-enabled")?.checked,
-    };
-    try {
-        const studyName = window.HPOState.session.studyName || '';
-        const res = await fetch(`/api/hpo_config?study_name=${encodeURIComponent(studyName)}`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-        });
-        if (!res.ok) { alert("Failed to save IDE settings"); return; }
-        const data = await res.json();
-        window.HPOState.data.hpoConfig = data.config || data;
-        populateEvalProtocolForm(window.HPOState.data.hpoConfig);
-        alert("IDE integration settings saved successfully!");
-    } catch (err) { alert("Error saving IDE settings: " + err); }
-}
-
-async function applyPendingChanges() {
-    try {
-        const res = await fetch(`/api/apply_pending_changes?study_name=${window.HPOState.session.studyName}`, { method: "POST" });
-        if (!res.ok) { const errData = await res.json(); alert("Error: " + (errData.detail || "Failed to apply changes")); return; }
-        const data = await res.json();
-        if (data.success) {
-            window.HPOState.data.activeSearchSpace = data.space;
-            renderSearchSpace();
-            renderDashboardSearchSpaceSummary();
-            fetchPendingChanges();
-        }
-    } catch (err) { console.error("Error applying pending changes:", err); }
-}
-
-async function discardPendingChanges() {
-    try {
-        const res = await fetch(`/api/discard_pending_changes?study_name=${window.HPOState.session.studyName}`, { method: "POST" });
-        if (!res.ok) { alert("Failed to discard changes"); return; }
-        const data = await res.json();
-        if (data.success) { fetchPendingChanges(); }
-    } catch (err) { console.error("Error discarding pending changes:", err); }
 }
 
 function togglePill(param, option, btn) {
@@ -306,12 +217,8 @@ function switchSettingsTab(tabId) {
     if (panel) panel.classList.add("active");
 }
 
-window.fetchPendingChanges = fetchPendingChanges;
 window.populateEvalProtocolForm = populateEvalProtocolForm;
 window.saveEvalProtocol = saveEvalProtocol;
-window.saveIdeSettings = saveIdeSettings;
-window.applyPendingChanges = applyPendingChanges;
-window.discardPendingChanges = discardPendingChanges;
 window.togglePill = togglePill;
 window.applySingleParamConstraints = applySingleParamConstraints;
 window.renderSearchSpace = renderSearchSpace;

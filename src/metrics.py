@@ -4,8 +4,7 @@ Every function in this module derives objective indices from the Optuna study's
 ``directions`` list instead of assuming [minimize, maximize] order.  This makes the
 codebase work for:
   - single-objective (maximize *or* minimize)
-  - multi-objective with any number of objectives and any direction ordering
-  - the original 2-obj [minimize, maximize] setup (fully backward-compatible)
+  - multi-objective with up to 2 objectives (one maximize, one minimize)
 """
 
 from typing import List, Optional, Sequence
@@ -134,12 +133,12 @@ def get_loss_from_dirs(trial: FrozenTrial, directions: Sequence[StudyDirection])
 def _trial_metric_snapshot(
     trial: FrozenTrial,
     history: List[dict],
-    dice_fixed_attr: str,
-    bce_fixed_attr: str,
+    score_fixed_attr: str,
+    loss_fixed_attr: str,
     directions: Sequence[StudyDirection] = None,
 ) -> dict:
     """Score/Loss for dashboard: completed values, else latest epoch / user_attrs."""
-    bce = dice = dice_eval_fixed = bce_eval_fixed = None
+    _score = _loss = _score_eval_fixed = _loss_eval_fixed = None
     latest_epoch = trial.user_attrs.get("latest_epoch")
 
     from optuna.trial import TrialState
@@ -147,45 +146,41 @@ def _trial_metric_snapshot(
 
     if trial.state == TrialState.COMPLETE and (trial.values or trial.value is not None):
         if trial.values and len(trial.values) > 1:
-            bce = get_loss_from_dirs(trial, directions or [])
-            dice = get_score_from_dirs(trial, directions or [])
+            _loss = get_loss_from_dirs(trial, directions or [])
+            _score = get_score_from_dirs(trial, directions or [])
         else:
             if directions and directions[0] == StudyDirection.MINIMIZE:
-                bce = trial.value
+                _loss = trial.value
             else:
-                dice = trial.value
+                _score = trial.value
     else:
-        dice = trial.user_attrs.get("latest_score", trial.user_attrs.get("latest_dice"))
-        bce = trial.user_attrs.get("latest_loss", trial.user_attrs.get("latest_bce"))
-        dice_eval_fixed = trial.user_attrs.get("score_eval_fixed", trial.user_attrs.get(dice_fixed_attr))
-        bce_eval_fixed = trial.user_attrs.get("loss_eval_fixed", trial.user_attrs.get(bce_fixed_attr))
+        _score = trial.user_attrs.get("latest_score")
+        _loss = trial.user_attrs.get("latest_loss")
+        _score_eval_fixed = trial.user_attrs.get("score_eval_fixed", trial.user_attrs.get(score_fixed_attr))
+        _loss_eval_fixed = trial.user_attrs.get("loss_eval_fixed", trial.user_attrs.get(loss_fixed_attr))
 
     if history:
         last = max(history, key=lambda e: e.get("epoch", 0))
         latest_epoch = latest_epoch or last.get("epoch")
-        if dice is None:
-            dice = last.get("score", last.get("dice"))
-        if bce is None:
-            bce = last.get("loss", last.get("bce"))
-        if dice_eval_fixed is None:
-            dice_eval_fixed = last.get("score_eval_fixed", last.get("dice_eval_fixed"))
-        if bce_eval_fixed is None:
-            bce_eval_fixed = last.get("loss_eval_fixed", last.get("bce_eval_fixed"))
+        if _score is None:
+            _score = last.get("score")
+        if _loss is None:
+            _loss = last.get("loss")
+        if _score_eval_fixed is None:
+            _score_eval_fixed = last.get("score_eval_fixed")
+        if _loss_eval_fixed is None:
+            _loss_eval_fixed = last.get("loss_eval_fixed")
 
-    if dice_eval_fixed is None:
-        dice_eval_fixed = trial.user_attrs.get("score_eval_fixed", trial.user_attrs.get(dice_fixed_attr))
-    if bce_eval_fixed is None:
-        bce_eval_fixed = trial.user_attrs.get("loss_eval_fixed", trial.user_attrs.get(bce_fixed_attr))
+    if _score_eval_fixed is None:
+        _score_eval_fixed = trial.user_attrs.get("score_eval_fixed", trial.user_attrs.get(score_fixed_attr))
+    if _loss_eval_fixed is None:
+        _loss_eval_fixed = trial.user_attrs.get("loss_eval_fixed", trial.user_attrs.get(loss_fixed_attr))
 
     return {
-        "bce": bce,
-        "dice": dice,
-        "score": dice,
-        "loss": bce,
-        "dice_eval_fixed": dice_eval_fixed,
-        "bce_eval_fixed": bce_eval_fixed,
-        "score_eval_fixed": dice_eval_fixed,
-        "loss_eval_fixed": bce_eval_fixed,
+        "score": _score,
+        "loss": _loss,
+        "score_eval_fixed": _score_eval_fixed,
+        "loss_eval_fixed": _loss_eval_fixed,
         "latest_epoch": latest_epoch,
     }
 

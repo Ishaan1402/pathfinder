@@ -31,7 +31,7 @@ function buildTrialsSnapshot(trials, paretoSet) {
     const base = trials
         .map(
             (t) =>
-                `${t.number}|${t.state}|${t.bce ?? ""}|${t.dice ?? ""}|${paretoSet.has(t.number) ? 1 : 0}`
+                `${t.number}|${t.state}|${t.loss ?? ""}|${t.score ?? ""}|${paretoSet.has(t.number) ? 1 : 0}`
         )
         .sort((a, b) => Number(a.split("|")[0]) - Number(b.split("|")[0]))
         .join(";");
@@ -41,7 +41,7 @@ function buildTrialsSnapshot(trials, paretoSet) {
 function buildFanovaSnapshot(trials) {
     return trials
         .filter((t) => t.state === "COMPLETE")
-        .map((t) => `${t.number}|${t.bce}|${t.dice}`)
+        .map((t) => `${t.number}|${t.loss}|${t.score}`)
         .join(";");
 }
 
@@ -65,8 +65,8 @@ function renderDashboardTableBody(displayTrials, paretoSet, data) {
     let rowsHtml = "";
     piped.forEach((t) => {
         const isPareto = paretoSet.has(t.number);
-        const bceStr = formatMetric(t.bce);
-        const diceStr = formatMetric(t.dice);
+        const lossStr = formatMetric(t.loss);
+        const scoreStr = formatMetric(t.score);
         let cellsHtml = "";
         paramKeys.forEach((k) => {
             const val = t.params[k];
@@ -82,12 +82,12 @@ function renderDashboardTableBody(displayTrials, paretoSet, data) {
         });
         let trClass = t.state === "RUNNING" ? "running" : (isPareto ? "pareto" : (t.state === "PRUNED" ? "pruned" : (t.state === "FAIL" ? "failed" : "")));
         const statusTdHtml = buildStatusTd(t.state, t.latest_epoch);
-        const fixedStr = formatMetric(t.dice_eval_fixed);
+        const fixedStr = formatMetric(t.score_eval_fixed);
         let rowHtml = `<tr class="${trClass}" onclick="openTrialDetails(${t.number})">
             <td class="td-mono" style="font-weight:600;">#${t.number}</td>
             ${statusTdHtml}
-            <td class="td-mono">${bceStr}</td>
-            <td class="td-mono">${diceStr}</td>`;
+            <td class="td-mono">${lossStr}</td>
+            <td class="td-mono">${scoreStr}</td>`;
         if (ev.enabled) rowHtml += `<td class="td-mono">${fixedStr}</td>`;
         rowHtml += `${cellsHtml}
             <td class="td-mono"><strong style="color:var(--status-complete);">${isPareto ? "★" : ""}</strong></td>
@@ -131,9 +131,9 @@ function renderAnalysisTableBody(displayTrials) {
     }
     let html = "";
     piped.forEach((t) => {
-        const bceStr = formatMetric(t.bce, "—");
-        const diceStr = formatMetric(t.dice, "—");
-        const fixedStr = formatMetric(t.dice_eval_fixed, "—");
+        const lossStr = formatMetric(t.loss, "—");
+        const scoreStr = formatMetric(t.score, "—");
+        const fixedStr = formatMetric(t.score_eval_fixed, "—");
         let cellsHtml = "";
         paramKeys.forEach((k) => {
             const val = t.params[k];
@@ -151,8 +151,8 @@ function renderAnalysisTableBody(displayTrials) {
         html += `<tr onclick="openTrialDetails(${t.number})">
             <td class="td-mono" style="font-weight:600;">#${t.number}</td>
             ${statusTdHtml}
-            <td class="td-mono">${bceStr}</td>
-            <td class="td-mono">${diceStr}</td>
+            <td class="td-mono">${lossStr}</td>
+            <td class="td-mono">${scoreStr}</td>
             ${ev.enabled ? `<td class="td-mono">${fixedStr}</td>` : ""}
             ${cellsHtml}
             <td style="text-align: right; white-space: nowrap;">
@@ -176,7 +176,7 @@ function applyAnalysisTableHeaders() {
 
     const lossLabel = window.HPOState.data.hpoConfig?.metric_loss_label || "Loss";
     const scoreLabel = window.HPOState.data.hpoConfig?.metric_score_label || "Score";
-    const evalLabel = ev.dice_fixed_label || "Score (eval)";
+    const evalLabel = ev.score_fixed_label || "Score (eval)";
 
     const headerSnapshot = `${lossLabel}|${scoreLabel}|${evalLabel}|${ev.enabled}|${paramKeys.join(",")}`;
     if (headerSnapshot === window.HPOState.render.lastAnalysisHeaderSnapshot) {
@@ -188,10 +188,10 @@ function applyAnalysisTableHeaders() {
     if (tableHeader) {
         let thHtml = buildSortableTh("Trial", "number", "analysis");
         thHtml += buildSortableTh("State", "state", "analysis");
-        thHtml += buildSortableTh(lossLabel, "bce", "analysis");
-        thHtml += buildSortableTh(scoreLabel, "dice", "analysis");
+        thHtml += buildSortableTh(lossLabel, "loss", "analysis");
+        thHtml += buildSortableTh(scoreLabel, "score", "analysis");
         if (ev.enabled) {
-            thHtml += buildSortableTh(evalLabel, "dice_eval_fixed", "analysis");
+            thHtml += buildSortableTh(evalLabel, "score_eval_fixed", "analysis");
         }
         paramKeys.forEach(k => {
             const label = paramLabels[k] || k.replace(/_/g, " ");
@@ -238,7 +238,7 @@ function renderStudyDetails(data) {
     if (tableHeader) {
         const lossLabel = data.hpo_config?.metric_loss_label || "Loss";
         const scoreLabel = data.hpo_config?.metric_score_label || "Score";
-        const evalLabel = ev.dice_fixed_label || "Score (eval)";
+        const evalLabel = ev.score_fixed_label || "Score (eval)";
 
         const headerSnapshot = `${lossLabel}|${scoreLabel}|${evalLabel}|${ev.enabled}|${paramKeys.join(",")}`;
         if (headerSnapshot !== window.HPOState.render.lastDashboardHeaderSnapshot) {
@@ -246,10 +246,10 @@ function renderStudyDetails(data) {
 
             let thHtml = buildSortableTh("Trial", "number", "dashboard");
             thHtml += buildSortableTh("State", "state", "dashboard");
-            thHtml += buildSortableTh(lossLabel, "bce", "dashboard");
-            thHtml += buildSortableTh(scoreLabel, "dice", "dashboard");
+            thHtml += buildSortableTh(lossLabel, "loss", "dashboard");
+            thHtml += buildSortableTh(scoreLabel, "score", "dashboard");
             if (ev.enabled) {
-                thHtml += buildSortableTh(evalLabel, "dice_eval_fixed", "dashboard");
+                thHtml += buildSortableTh(evalLabel, "score_eval_fixed", "dashboard");
             }
             paramKeys.forEach(k => {
                 const label = paramLabels[k] || k.replace(/_/g, " ");
@@ -369,10 +369,10 @@ function applyEvalInsightsUi() {
         grid.innerHTML = keys
             .map((res) => {
                 const s = summary[res];
-                const trainBestVal = s.best_score_train !== undefined ? s.best_score_train : s.best_dice_train;
+                const trainBestVal = s.best_score_train;
                 const trainBest = trainBestVal != null ? trainBestVal.toFixed(4) : "—";
                 
-                const fixedBestVal = s.best_score_fixed !== undefined ? s.best_score_fixed : s.best_dice_fixed;
+                const fixedBestVal = s.best_score_fixed;
                 const fixedBest = fixedBestVal != null ? fixedBestVal.toFixed(4) : "—";
                 
                 // Capitalize parameter label for individual chips
@@ -386,9 +386,7 @@ function applyEvalInsightsUi() {
 
     const scoreLabel = window.HPOState.data.hpoConfig?.metric_score_label || "Score";
     if (deployLabel && window.HPOState.data.evalInsights?.best_deploy_trial_number != null) {
-        const d = window.HPOState.data.evalInsights.best_deploy_score_fixed !== undefined
-            ? window.HPOState.data.evalInsights.best_deploy_score_fixed
-            : window.HPOState.data.evalInsights.best_deploy_dice_fixed;
+        const d = window.HPOState.data.evalInsights.best_deploy_score_fixed;
         deployLabel.textContent = `Best fixed-eval: Trial #${window.HPOState.data.evalInsights.best_deploy_trial_number}${d != null ? ` · ${scoreLabel} ${d.toFixed(4)}` : ""}`;
     } else if (deployLabel) {
         deployLabel.textContent = "";

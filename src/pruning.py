@@ -2,7 +2,7 @@ import numpy as np
 from typing import Optional, Dict, Any, List
 from optuna.trial import TrialState
 
-from src.hpo_coordinator import trial_train_resolution as _trial_train_resolution
+from src.analytics import trial_train_resolution as _trial_train_resolution
 
 
 def _effective_train_resolution(
@@ -24,7 +24,7 @@ def _effective_train_resolution(
 
 
 def _epoch_composite_score(study, trial, epoch: int, ev: Dict[str, Any]) -> Optional[float]:
-    """Composite score at epoch, Z-score normalized against study rolling history at the same epoch, fallback to (dice - bce)."""
+    """Composite score at epoch, Z-score normalized against study rolling history at the same epoch, fallback to (score - loss)."""
     use_fixed = ev.get("enabled") and ev.get("use_fixed_metric_for_pruning")
     
     # 1. Retrieve current trial's metrics at this epoch
@@ -34,12 +34,12 @@ def _epoch_composite_score(study, trial, epoch: int, ev: Dict[str, Any]) -> Opti
     if isinstance(history, list):
         for entry in history:
             if entry.get("epoch") == epoch:
-                if use_fixed and (entry.get("score_eval_fixed") is not None or entry.get("dice_eval_fixed") is not None):
-                    curr_score = entry.get("score_eval_fixed", entry.get("dice_eval_fixed"))
-                    curr_loss = entry.get("loss_eval_fixed", entry.get("bce_eval_fixed", entry.get("loss", entry.get("bce", 0.0))))
+                if use_fixed and entry.get("score_eval_fixed") is not None:
+                    curr_score = entry.get("score_eval_fixed")
+                    curr_loss = entry.get("loss_eval_fixed", entry.get("loss", 0.0))
                 else:
-                    curr_score = entry.get("score", entry.get("dice"))
-                    curr_loss = entry.get("loss", entry.get("bce"))
+                    curr_score = entry.get("score")
+                    curr_loss = entry.get("loss")
                 break
                 
     if curr_score is None or curr_loss is None:
@@ -57,12 +57,12 @@ def _epoch_composite_score(study, trial, epoch: int, ev: Dict[str, Any]) -> Opti
         if isinstance(t_history, list):
             for entry in t_history:
                 if entry.get("epoch") == epoch:
-                    if use_fixed and (entry.get("score_eval_fixed") is not None or entry.get("dice_eval_fixed") is not None):
-                        s = entry.get("score_eval_fixed", entry.get("dice_eval_fixed"))
-                        l = entry.get("loss_eval_fixed", entry.get("bce_eval_fixed", entry.get("loss", entry.get("bce", 0.0))))
+                    if use_fixed and entry.get("score_eval_fixed") is not None:
+                        s = entry.get("score_eval_fixed")
+                        l = entry.get("loss_eval_fixed", entry.get("loss", 0.0))
                     else:
-                        s = entry.get("score", entry.get("dice"))
-                        l = entry.get("loss", entry.get("bce"))
+                        s = entry.get("score")
+                        l = entry.get("loss")
                     if s is not None and l is not None:
                         scores.append(float(s))
                         losses.append(float(l))
@@ -70,8 +70,8 @@ def _epoch_composite_score(study, trial, epoch: int, ev: Dict[str, Any]) -> Opti
 
     # 3. Z-score normalize if we have enough history (>= 10 values)
     if len(scores) < 10:
-        # Not enough history: return score only (conservative fallback)
-        return float(curr_score)
+        # Not enough history: simple linear composite (score - loss)
+        return float(curr_score) - float(curr_loss) if curr_loss is not None else float(curr_score)
 
     score_mean, score_std = np.mean(scores), np.std(scores)
     loss_mean, loss_std = np.mean(losses), np.std(losses)

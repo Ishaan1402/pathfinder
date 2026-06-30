@@ -1278,7 +1278,7 @@
         .trial-table .col-trial { width: 60px; min-width: 60px; }
         .trial-table .col-state { width: 100px; }
         .trial-table .col-metric { width: 72px; }
-        .trial-table .col-dice-fixed { width: 72px; }
+        .trial-table .col-score-fixed { width: 72px; }
         .trial-table .col-lr { width: 64px; }
         .trial-table .col-bs { width: 44px; }
         .trial-table .col-res { width: 44px; }

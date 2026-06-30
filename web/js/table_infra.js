@@ -110,9 +110,9 @@ function makeTableResizable(table, force = false) {
 function getTrialCellValue(trial, colKey) {
     if (colKey === "number") return trial.number;
     if (colKey === "state") return trial.state;
-    if (colKey === "bce") return trial.bce;
-    if (colKey === "dice") return trial[getPrimaryScoreKey()] ?? trial.dice;
-    if (colKey === "dice_eval_fixed") return trial.dice_eval_fixed;
+    if (colKey === "loss") return trial.loss;
+    if (colKey === "score") return trial[getPrimaryScoreKey()] ?? trial.score;
+    if (colKey === "score_eval_fixed") return trial.score_eval_fixed;
     if (colKey.startsWith("param:")) return trial.params?.[colKey.slice(6)];
     return null;
 }

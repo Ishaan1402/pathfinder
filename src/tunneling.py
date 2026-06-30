@@ -1,5 +1,4 @@
 import os
-import sys
 import datetime
 import sqlite3
 import glob
@@ -82,7 +81,7 @@ def _start_ngrok(port: int, secret_token: Optional[str]) -> Optional[str]:
     """Spawn ngrok, wait for its agent API to report the public URL, return it."""
     try:
         print(f"Spawning ngrok tunnel for port {port}...")
-        proc = subprocess.Popen(
+        subprocess.Popen(
             ["ngrok", "http", str(port)],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,

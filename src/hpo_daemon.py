@@ -1,107 +1,64 @@
-"""Background polling daemon for monitoring study health.
+"""Background polling daemon for study health monitoring only.
 
-Runs inside the FastAPI broker process as a background thread. It is intentionally NOT an
-autopilot: it reclaims expired trial leases, recomputes each study's health tier, writes the
-``.hpo_status.json`` hint file, and (optionally) fires a desktop notification so the human can
-open the dashboard. It never calls an LLM and never mutates the search space — coordinator
-reviews are always human-initiated (dashboard "Apply Proposal" or the MCP tools).
+Runs inside the FastAPI broker process as a background thread. It reclaims expired trial
+leases, recomputes each study's health tier via ``compute_health_tier``, writes the
+``.hpo_status.json`` hint file, and updates ``StudyStatus`` in the database. It never calls
+an LLM, never fires desktop notifications, and never recommends coordinator reviews.
 """
+import logging
 import time
-import subprocess
-from typing import Dict
+from typing import List
 
 from src.db_manager import get_db_session
+from src.health import compute_health_tier, write_ide_status_file
 from src.schema import StudyStatus
-from src.hpo_coordinator import compute_review_heuristics
-from src.hpo_config import load_hpo_config
 
-DEFAULT_STUDY = "bridge_crack_study"
-
-# Cooldown to avoid alert spamming: {study_name: (last_alert_time, last_alert_trials)}
-_ALERT_COOLDOWN_PERIOD = 300  # 5 minutes
-_alert_history: Dict[str, tuple] = {}
-
-
-def trigger_macos_notification(title: str, subtitle: str, message: str):
-    """Triggers a native macOS desktop alert popup using AppleScript."""
-    try:
-        title_esc = title.replace('"', '\\"')
-        subtitle_esc = subtitle.replace('"', '\\"')
-        msg_esc = message.replace('"', '\\"')
-
-        script = f'display notification "{msg_esc}" with title "{title_esc}" subtitle "{subtitle_esc}"'
-        subprocess.run(["osascript", "-e", script], check=True)
-    except Exception as e:
-        print(f"Error triggering macOS desktop notification: {e}")
+logger = logging.getLogger(__name__)
 
 
 def check_and_alert_study(study_name: str):
-    """Recompute a study's health, refresh the status hint file, and notify if warranted.
-
-    Notify-only: when a review is recommended and desktop notifications are enabled, fire a
-    macOS notification pointing the user at the dashboard. No LLM is ever called here.
-    """
+    """Recompute a study's health tier, write the IDE status file, and persist to DB."""
     try:
-        from .suggest import get_or_create_study
+        from .suggest import load_study
 
         try:
-            study = get_or_create_study(study_name)
+            study = load_study(study_name)
         except Exception:
-            # Study might not exist yet, skip silently
             return
 
-        hpo_config = load_hpo_config(study_name)
-        notifs_enabled = hpo_config.get("desktop_notifications_enabled", False)
+        health_tier, health_reason = compute_health_tier(study, study_name)
 
-        from src.hpo_coordinator import study_eval_insights, write_ide_status_file
-        insights = study_eval_insights(study, hpo_config)
-        heuristics = compute_review_heuristics(study, insights, hpo_config, study_name)
-
-        n_eval = heuristics["trials_evaluated"]
-        health_tier = heuristics["health_tier"]
-        health_reason = heuristics["health_reason"]
-
-        # Refresh the IDE status hint file (informational; agents may read it on demand).
         write_ide_status_file(study_name, health_tier, health_reason, study)
 
-        if not heuristics["review_recommended"]:
-            # Healthy, or already reviewed/dismissed for the current trial window.
-            return
+        with get_db_session() as session:
+            status = session.query(StudyStatus).filter_by(study_name=study_name).first()
+            if status is None:
+                status = StudyStatus(study_name=study_name)
+                session.add(status)
+            status.health_tier = health_tier
+            status.health_reason = health_reason
+            session.commit()
 
-        # Cooldown to avoid repeat alerts for the same trial window.
-        now = time.time()
-        if study_name in _alert_history:
-            last_time, last_trials = _alert_history[study_name]
-            if last_trials == n_eval or (now - last_time) < _ALERT_COOLDOWN_PERIOD:
-                return
-        _alert_history[study_name] = (now, n_eval)
-
-        print(f"⚠️ Pathfinder Alert [{study_name.upper()}]: {health_tier.upper()} state. Reason: {health_reason}")
-        if notifs_enabled:
-            subtitle = f"Study Health: {health_tier.upper()}"
-            trigger_macos_notification("Pathfinder", subtitle, f"Trial #{n_eval} | {health_reason} (Open dashboard to review)")
-
-    except Exception as e:
-        print(f"Error checking study health: {e}")
+    except Exception:
+        logger.exception("Error checking health for study %s", study_name)
 
 
 def reclaim_expired_leases():
-    from datetime import datetime
+    from datetime import datetime, timezone
     import optuna
     from src.schema import TrialLease
-    from .suggest import get_or_create_study
+    from .suggest import load_study
 
     try:
         with get_db_session() as session:
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
             expired = session.query(TrialLease).filter(
                 TrialLease.lease_expires_at < now
             ).all()
             if expired:
                 for lease in expired:
                     try:
-                        study = get_or_create_study(lease.study_name)
-                        # Find corresponding trial number in Optuna
+                        study = load_study(lease.study_name)
                         trial_number = None
                         for t in study.trials:
                             if t._trial_id == lease.trial_id:
@@ -113,21 +70,23 @@ def reclaim_expired_leases():
                             )
                             if trial_obj and trial_obj.state == optuna.trial.TrialState.RUNNING:
                                 study.tell(trial_number, state=optuna.trial.TrialState.FAIL)
-                                print(
-                                    f"Daemon: Terminated expired leased Trial {trial_number} "
-                                    f"(ID {lease.trial_id}) in study '{lease.study_name}'."
+                                logger.info(
+                                    "Terminated expired leased Trial %d (ID %s) in study '%s'.",
+                                    trial_number, lease.trial_id, lease.study_name,
                                 )
-                    except Exception as e:
-                        print(f"Daemon: Failed to cleanly terminate expired trial ID {lease.trial_id}: {e}")
+                    except Exception:
+                        logger.exception(
+                            "Failed to cleanly terminate expired trial ID %s", lease.trial_id
+                        )
                     session.delete(lease)
                 session.commit()
-    except Exception as e:
-        print(f"Daemon: Error in reclaim_expired_leases: {e}")
+    except Exception:
+        logger.exception("Error in reclaim_expired_leases")
 
 
 def run_daemon_loop(interval_seconds: int = 10):
-    """Indefinite daemon polling loop (notify-only health monitoring + lease reclamation)."""
-    print(f"Starting background health daemon thread (notify-only, interval: {interval_seconds}s)...")
+    """Indefinite daemon polling loop (health monitoring + lease reclamation)."""
+    logger.info("Starting background health daemon thread (interval: %ds)...", interval_seconds)
     last_reap_time = 0.0
     while True:
         try:
@@ -136,21 +95,18 @@ def run_daemon_loop(interval_seconds: int = 10):
                 reclaim_expired_leases()
                 last_reap_time = now
 
-            studies = []
+            studies: List[str] = []
             try:
                 with get_db_session() as session:
                     rows = session.query(StudyStatus).all()
                     studies = [r.study_name for r in rows]
-            except Exception as e:
-                print(f"Failed to fetch studies: {e}")
-
-            if not studies:
-                studies = [DEFAULT_STUDY]
+            except Exception:
+                logger.exception("Failed to fetch studies")
 
             for name in studies:
                 check_and_alert_study(name)
 
-        except Exception as e:
-            print(f"Daemon loop error: {e}")
+        except Exception:
+            logger.exception("Daemon loop error")
 
         time.sleep(interval_seconds)

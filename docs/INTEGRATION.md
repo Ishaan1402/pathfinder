@@ -3,9 +3,9 @@
 A human quickstart for wiring your own model to the broker. For the agent-driven version of
 this (have your IDE assistant do it), see [`AGENTS.md`](../AGENTS.md).
 
-The root `colab_worker.py` is the full bridge-crack U-Net reference implementation. You do
-**not** need to fork it. Cloners start from `templates/worker_minimal.py` and the 3-call
-client in `hpo_client.py`.
+The reference crack-seg implementation (`colab_worker.py`) lives in [`archive/`](../archive/). You
+do **not** need to fork it. Cloners start from `templates/worker_minimal.py` and the 3-call
+client in `src/hpo_client.py`.
 
 ## 1. Install
 
@@ -17,7 +17,7 @@ pip install -r requirements.txt
 
 ## 2. Run the broker
 
-**Local only** (simulator on the same machine — Colab cannot reach this):
+**Local only** (worker on the same machine — Colab cannot reach this):
 
 ```bash
 source .venv/bin/activate
@@ -37,24 +37,19 @@ Save that token and use the **same** value in three places:
 | Where | How |
 |-------|-----|
 | Colab / worker | `os.environ["HPO_SECRET_TOKEN"] = "…"` — `TrialSession` sends `X-HPO-Token` |
-| Dashboard | First visit to the ngrok URL prompts once; stored in a session cookie |
+| Dashboard | First visit to the tunnel URL prompts once; stored in a session cookie |
 | CLI / MCP | `export HPO_SECRET_TOKEN=…` when tools hit the tunneled broker |
 
-Worker downloads (`/colab_worker.py`, `/hpo_client.py`) also require the token header when
-auth is on. The dashboard **Worker Setup** tab explains this and generates copy-paste snippets.
+Worker downloads also require the token header when auth is on. The dashboard **Worker Setup** tab
+generates copy-paste snippets.
 
-## 3. Configure MCP (optional, for agent assistance)
+## 3. Define your search space via a Manifest
 
-Point your IDE's MCP config at `pathfinder` (`python hpo_mcp_server.py`). The same
-config works in Cursor, Antigravity, and Claude Code - see the README
-"Exposing Pathfinder to AI Agents" section. Set `HPO_BROKER_URL` in the MCP env if you want
-`validate_integration` to check the live broker.
-
-## 4. Define your search space via a Manifest
-
-Pathfinder uses a manifest-based onboarding system. You define your study config, search space parameters, objectives, and training command in a single YAML file (e.g. `train.hpo.yaml`).
+Pathfinder uses a manifest-based onboarding system. You define your study config, search space
+parameters, objectives, and training command in a single YAML file (e.g. `train.hpo.yaml`).
 
 To set up a study:
+
 1. **Create the manifest file**: Write a YAML file based on `templates/manifest.template.yaml`.
 2. **Validate the manifest**:
    - **CLI**: `python hpo_cli.py validate train.hpo.yaml`
@@ -65,9 +60,10 @@ To set up a study:
    - **MCP**: Use the `init_from_manifest` tool.
    - **Dashboard**: Click **Initialize Study** after validating.
 
-This stores configuration in the database and creates the Optuna study. The database configuration keeps all studies isolated.
+This stores configuration in the database and creates the Optuna study. The database
+configuration keeps all studies isolated.
 
-## 5. The worker contract (three calls)
+## 4. The worker contract (three calls)
 
 Set environment variables on the machine that trains:
 
@@ -77,10 +73,10 @@ export HPO_STUDY_NAME="my_study"
 export HPO_SPARKLINES=1                         # Optional: prints a Unicode curve on completion
 ```
 
-Then use `hpo_client.TrialSession`:
+Then use `src.hpo_client.TrialSession`:
 
 ```python
-from hpo_client import TrialSession
+from src.hpo_client import TrialSession
 import sys
 
 # 1. Detect GPU telemetry
@@ -100,24 +96,25 @@ trial = session.suggest()                # -> {trial_id, trial_number, params}
 pruned = False
 oom_triggered = False
 last_epoch = 0
-dice, bce = 0.0, 0.0
+score, loss = 0.0, 0.0
 
 try:
     for epoch in range(num_epochs):
         last_epoch = epoch
-        dice, bce = train_one_epoch(trial["params"])      # your training step
-        if session.report_epoch(epoch, dice, bce):        # True => broker says prune
+        score, loss = train_one_epoch(trial["params"])    # your training step
+        if session.report_epoch(epoch, score=score, loss=loss):  # True => broker says prune
             session.complete(
-                epoch, dice, bce, state="PRUNED",
+                epoch, score=score, loss=loss, state="PRUNED",
                 gpu_model=gpu_model, max_vram_gb=max_vram_gb, oom_triggered=False
             )
             pruned = True
             break
 except Exception as exc:
     # 2. Catch and report Out Of Memory (OOM) failures
-    if "out of memory" in str(exc).lower():
+    exc_str = str(exc).lower()
+    if "out of memory" in exc_str or "oom" in exc_str:
         session.complete(
-            last_epoch, dice, bce, state="FAIL",
+            last_epoch, score=score, loss=loss, state="FAIL",
             gpu_model=gpu_model, max_vram_gb=max_vram_gb, oom_triggered=True
         )
         print("Trial failed due to GPU OOM.")
@@ -127,7 +124,7 @@ except Exception as exc:
 
 if not pruned:
     session.complete(
-        last_epoch, dice, bce, weights_path="model.pt", state="COMPLETE",
+        last_epoch, score=score, loss=loss, weights_path="model.pt", state="COMPLETE",
         gpu_model=gpu_model, max_vram_gb=max_vram_gb, oom_triggered=False
     )
 ```
@@ -137,54 +134,31 @@ That is the entire contract:
 | Call | Endpoint | Purpose |
 |------|----------|---------|
 | `session.suggest()` | `POST /api/suggest_trial` | Get the next trial's hyperparameters |
-| `session.report_epoch(epoch, dice, bce, ...)` | `POST /api/report_epoch` | Log an epoch; returns `should_prune` |
-| `session.complete(epoch, dice, bce, ..., gpu_model, max_vram_gb, oom_triggered)` | `POST /api/complete_trial` | Finalize (COMPLETE / PRUNED / FAIL) with hardware telemetry |
+| `session.report_epoch(epoch, score=score, loss=loss, ...)` | `POST /api/report_epoch` | Log an epoch; returns `should_prune` |
+| `session.complete(epoch, score=score, loss=loss, ..., gpu_model, max_vram_gb, oom_triggered)` | `POST /api/complete_trial` | Finalize (COMPLETE / PRUNED / FAIL) with hardware telemetry |
 
-`templates/worker_minimal.py` is a ~65-line starting point - fill in `train_one_epoch`.
-
-### Google Colab (bridge-crack reference)
-
-The root `colab_worker.py` is **only** for the bridge-crack U-Net study. Cloners use
-`templates/worker_minimal.py` above — do not fork `colab_worker.py`.
-
-| Entrypoint | When to use |
-|------------|-------------|
-| `train_colab_trial(study_name, epochs=15)` | One trial (smoke test or debugging) |
-| `train_colab_trial_loop(study_name, n_trials=12, epochs=15)` | Normal Colab session (default) |
-
-`train_colab_trial_loop` repeatedly calls `train_colab_trial`. Each iteration:
-
-- Reports guardrail skips and caught OOM/crashes as `FAIL` to the broker (loop continues).
-- Clears the CUDA cache between trials.
-- Retries transient `suggest_trial` errors (via `TrialSession` backoff).
-
-If the Colab kernel hard-crashes without running Python cleanup, the broker marks the trial
-`FAIL` after the worker lease expires (~45s without a heartbeat) or on the next dashboard poll.
-
-```python
-import os
-os.environ["HPO_BROKER_URL"] = "https://<your-ngrok-url>"
-os.environ["HPO_SECRET_TOKEN"] = "<same-token-as-broker>"  # required when --tunnel is on
-
-from colab_worker import train_colab_trial_loop
-train_colab_trial_loop("bridge_crack_study", n_trials=12, epochs=15)
-```
-
-The dashboard **Worker Setup → Google Colab Integration** tab generates the full
-download-and-run snippet (including authenticated fetches of `colab_worker.py`).
+`templates/worker_minimal.py` is a ~60-line starting point — fill in `train_one_epoch`.
 
 > [!NOTE]
 > **Abstracting Metrics (Non-CV Tasks)**
-> The parameter names `dice` (higher-is-better) and `bce` (lower-is-better) are abstract placeholders in the API. If you are doing NLP (e.g. Perplexity and BLEU), RL (e.g. Reward and Episode Length), or Tabular tasks:
-> - Pass your higher-is-better metric (e.g. Accuracy, BLEU, F1, Reward) as `dice`.
-> - Pass your lower-is-better metric (e.g. Loss, Perplexity, MAE) as `bce`.
-> - You can customize their display names on the UI dashboard under **Settings > Eval protocol** by setting "Loss metric display name" and "Score metric display name" (they default to BCE and Dice).
+> The parameter names `score` (higher-is-better) and `loss` (lower-is-better) are generic slots in the API. If you are doing NLP (e.g. Perplexity and BLEU), RL (e.g. Reward and Episode Length), or Tabular tasks:
+> - Pass your higher-is-better metric (e.g. Accuracy, BLEU, F1, Reward) as `score`.
+> - Pass your lower-is-better metric (e.g. Cross-Entropy, Perplexity, MAE) as `loss`.
+> - You can customize their display names on the UI dashboard under **Settings > Eval protocol** by setting "Loss metric display name" and "Score metric display name".
 
-## 6. Create the study and validate
+### Google Colab (reference only)
 
-Call the MCP `init_from_manifest` tool (or CLI `init`) to create the Optuna study and seed configuration options from your manifest file. Use the `/health` broker endpoint to verify connectivity.
+The historical bridge-crack U-Net reference implementation is preserved in
+[`archive/colab_worker.py`](../archive/colab_worker.py). **Do not use it for new studies.**
+Cloners should use `templates/worker_minimal.py`.
 
-## 7. CLI operations
+## 5. Create the study and validate
+
+Call the MCP `init_from_manifest` tool (or CLI `init`) to create the Optuna study and seed
+configuration options from your manifest file. Use the `/health` broker endpoint to verify
+connectivity.
+
+## 6. CLI operations
 
 Pathfinder ships a command-line interface (`hpo_cli.py`) for database operations.
 
@@ -194,7 +168,8 @@ Pathfinder ships a command-line interface (`hpo_cli.py`) for database operations
 python hpo_cli.py validate train.hpo.yaml
 ```
 
-Parses and validates the YAML manifest against the Pathfinder schema. Reports errors and warnings without touching the database.
+Parses and validates the YAML manifest against the Pathfinder schema. Reports errors and
+warnings without touching the database.
 
 ### Initialize a study from manifest
 
@@ -210,7 +185,8 @@ python hpo_cli.py export my_study --output my_study.json
 python hpo_cli.py export my_study --format csv --output my_study.csv
 ```
 
-Exports the full study — Optuna trials, trial results, reviews, agent logs — into a portable JSON or CSV file. Useful for archiving, sharing, or migrating between machines.
+Exports the full study — Optuna trials, trial results, reviews, agent logs — into a portable
+JSON or CSV file. Useful for archiving, sharing, or migrating between machines.
 
 ### Import a study
 
@@ -220,7 +196,26 @@ python hpo_cli.py import my_study.json --rename new_study_name
 python hpo_cli.py import my_study.json --rename new_study_name --force  # overwrite if exists
 ```
 
-Imports a study from a previously exported JSON file. Any trials that were `RUNNING` at export time are automatically converted to `FAIL` so they do not appear as zombie trials. If the import fails partway through (e.g. corrupted data), the entire import is rolled back atomically — no orphan rows are left.
+Imports a study from a previously exported JSON file. Any trials that were `RUNNING` at export
+time are automatically converted to `FAIL` so they do not appear as zombie trials. If the import
+fails partway through, the entire import is rolled back atomically.
+
+### Generate a model card
+
+```bash
+python hpo_cli.py modelcard my_study
+```
+
+Writes `MODEL_CARD.md` to disk with a synthesis of the study's results, best hyperparameters,
+and importance rankings.
+
+### Delete a study
+
+```bash
+python hpo_cli.py delete my_study
+```
+
+Permanently removes a study and all its data from the database. Requires confirmation.
 
 ### Backup the database
 
@@ -228,22 +223,29 @@ Imports a study from a previously exported JSON file. Any trials that were `RUNN
 python hpo_cli.py backup --output backup.db
 ```
 
-Creates a point-in-time snapshot of the full SQLite database (`hpo_studies.db`) using SQLite's online backup API. Safe to run while the broker is running.
+Creates a point-in-time snapshot of the full SQLite database using SQLite's online backup API.
+Safe to run while the broker is running.
 
-## 8. Environment variables
+## 7. Environment variables
 
 | Variable | Default | Description |
-|---|---|---|
+|---|---|---|---|
+| `HPO_DATABASE_URL` | `sqlite:///hpo_studies.db` | SQLite connection string. |
 | `HPO_BROKER_URL` | `http://localhost:8000` | URL the worker uses to reach the broker. |
 | `HPO_STUDY_NAME` | *(none)* | Default study name when not passed explicitly. |
 | `HPO_SECRET_TOKEN` | *(none)* | Bearer token required when `--tunnel` auth is enabled. |
+| `HPO_DEBUG` | `0` | Set to `1` to enable verbose debug logging in the broker. |
 | `HPO_SPARKLINES` | `0` | Set to `1` to print a Unicode training curve on trial completion. |
-| `HPO_BACKUP_ON_START` | `0` | Set to `1` to run an automatic database backup when the broker starts. Equivalent to `--backup-on-start` CLI flag. |
-| `HPO_CAPTURE_FULL_ENV` | `0` | Set to `1` to capture the full `pip freeze` output rather than the default ML-library whitelist. Useful for exact reproducibility audits. |
+| `HPO_BACKUP_ON_START` | `0` | Set to `1` to run an automatic database backup when the broker starts. |
+| `HPO_CAPTURE_FULL_ENV` | `0` | Set to `1` to capture the full `pip freeze` output rather than the default ML-library whitelist. |
+| `HPO_TUNNEL_PROVIDER` | *(none)* | Tunnel provider for remote access: `ngrok` or `cloudflare`. |
+| `HPO_TUNNEL_URL` | *(none)* | Static tunnel URL when using `cloudflare` provider. |
+| `HPO_ALLOWED_ORIGINS` | *(none)* | Additional CORS origins (comma-separated) for the dashboard. |
 
-## 9. Validation guardrails schema
+## 8. Validation guardrails schema
 
-`validation_rules` can be set in the manifest YAML or via **Settings → Eval protocol → Metric guardrails** in the dashboard.
+`validation_rules` can be set in the manifest YAML or via **Settings > Eval protocol >
+Metric guardrails** in the dashboard.
 
 ```yaml
 validation_rules:
@@ -253,11 +255,15 @@ validation_rules:
   max_epoch_jump: 0.5    # warn when score changes by more than this fraction between consecutive epochs
 ```
 
-When `enabled: false` (the default for new studies), no metric warnings are ever generated. Set `enabled: true` only when you have domain knowledge about valid metric ranges for your task.
+When `enabled: false` (the default for new studies), no metric warnings are ever generated.
+Set `enabled: true` only when you have domain knowledge about valid metric ranges for your task.
 
-When a trial triggers a guardrail it is flagged as **Watch** in the study health, but the trial is still recorded — guardrails are advisory, not blocking (the only hard rejection is when *both* metrics are exactly `0.0`, history is empty, and `epoch ≤ 0` on a multi-objective study, which strongly indicates training never ran).
+When a trial triggers a guardrail it is flagged as **Watch** in the study health, but the
+trial is still recorded — guardrails are advisory, not blocking (the only hard rejection is
+when *both* metrics are exactly `0.0`, history is empty, and `epoch ≤ 0` on a multi-objective
+study, which strongly indicates training never ran).
 
 ## Next steps
 
 - Open the dashboard (`index.html` served via the broker root) to watch trials, the Pareto front, and fANOVA importance.
-- Use the episodic coordinator review (see [`AGENTS.md`](../AGENTS.md)) to interpret results and adjust the search space with evidence.
+- Use the inspection flow (see [`AGENTS.md`](../AGENTS.md)) to interpret results with your IDE agent.

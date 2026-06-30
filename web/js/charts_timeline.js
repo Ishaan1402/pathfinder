@@ -11,8 +11,8 @@ function updateAshaTimeline(trials) {
         return;
     }
 
-    const scoreLabel = window.HPOState.data.hpoConfig?.metric_score_label || "Dice";
-    const lossLabel = window.HPOState.data.hpoConfig?.metric_loss_label || "BCE";
+    const scoreLabel = window.HPOState.data.hpoConfig?.metric_score_label || "Score";
+    const lossLabel = window.HPOState.data.hpoConfig?.metric_loss_label || "Loss";
 
     let html = "";
     validTrials.forEach(t => {
@@ -77,8 +77,8 @@ function updateAshaTimeline(trials) {
                         <span style="font-size: 0.75rem; color: var(--text-muted);">${paramsStr}</span>
                     </div>
                     <div style="font-family: var(--font-mono); font-size: 0.8rem;">
-                        ${t.dice !== null ? `<span style="color:#10b981; font-weight:600;">${scoreLabel}: ${t.dice.toFixed(4)}</span>` : ""}
-                        ${t.bce !== null ? `  <span style="color:var(--text-muted);">(${lossLabel}: ${t.bce.toFixed(4)})</span>` : ""}
+                        ${t.score !== null ? `<span style="color:#10b981; font-weight:600;">${scoreLabel}: ${t.score.toFixed(4)}</span>` : ""}
+                        ${t.loss !== null ? `  <span style="color:var(--text-muted);">(${lossLabel}: ${t.loss.toFixed(4)})</span>` : ""}
                     </div>
                 </div>
                 <div style="display: flex; align-items: center; margin-top: 4px; padding: 0 4px; overflow-x: auto; min-height: 44px;">

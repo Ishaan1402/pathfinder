@@ -1,14 +1,9 @@
 # Pathfinder
 
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/downloads/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![Optuna](https://img.shields.io/badge/Optuna-Tuning-1E90FF?style=flat-square)](https://optuna.org/)
-[![SQLite](https://img.shields.io/badge/SQLite-003B57?style=flat-square&logo=sqlite&logoColor=white)](https://www.sqlite.org/)
-[![MCP](https://img.shields.io/badge/MCP-Model_Context_Protocol-orange?style=flat-square)](https://modelcontextprotocol.io/)
 [![Build Status](https://github.com/Ishaan1402/pathfinder/actions/workflows/integration.yml/badge.svg)](https://github.com/Ishaan1402/pathfinder/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
 
-A layered hyperparameter optimization (HPO) framework that keeps quick Optuna suggestions seperate from episodic AI reviews. Workers run training script loops autonomously updating with optimized HPs without being blocked by LLM evaluation. This leaves you (or agents in your IDE) to review results periodically and decide when to adjust the search space or overarching strategy.
+Pathfinder is an MCP-integrated hyperparameter optimization dashboard that lets AI coding agents onboard your training script and inspect running experiments. It wraps Optuna's TPE sampler in a FastAPI broker with SQLite persistence and a vanilla JS dashboard, while exposing structured study data through Model Context Protocol tools so your IDE agent can meaningfully participate in the tuning loop.
 
 <table border="0">
   <tr>
@@ -17,32 +12,30 @@ A layered hyperparameter optimization (HPO) framework that keeps quick Optuna su
     </td>
     <td width="33%" valign="top">
       <img src="docs/images/pathways_plot.png" alt="Hyperparameter Pathways Plot" style="margin-bottom: 6px;" />
-      <img src="docs/images/pruning_timeline.png" alt="ASHA Pruning Timeline" />
+      <img src="docs/images/pruning_timeline.png" alt="Pruning Timeline" />
     </td>
   </tr>
 </table>
 
-  **Designed for:** ML researchers and students tuning deep learning models on their own infrastructure (local GPU, Colab, cloud VMs). Connect your existing training loop in just 4 lines of code — see [For Your Own Project](#onboarding-your-own-project) below.
+**Designed for:** ML researchers tuning deep learning models on their own hardware (local GPU, Colab, cloud VMs). Connect your training loop in ~60 lines of code.
 
 ## Why Pathfinder?
 
-**Problem:** Traditional HPO frameworks execute fast, but they typically operate within fixed boundaries. If your initial search space is poorly posed or if specific hyperparameter combinations trigger hardware failures (like CUDA OOMs or gradient explosions), a traditional optimizer will blindly burn through your GPU budget until it hits its limit. Fixing this requires the researcher to manually monitor charts, context-switch out of the IDE, and rewrite configuration files by hand.
+ML practitioners waste GPU hours on poorly-bounded search spaces and have to manually inspect trial data by grepping logs or refreshing notebooks. Pathfinder gives you a live monitoring dashboard plus an MCP server so your IDE agent can read study state and help onboard new studies. It does not compete with W&B Sweeps or Ray Tune — it's a demonstration of agent-assisted HPO workflows.
 
-**Solution:** Three independent layers:
+Three independent layers:
 
-- **Broker (Optuna TPE)**: Quick, deterministic suggestion engine. Hyperparameter suggestions and pruning happen in <10ms. Workers access this endpoint and continue training.
-- **Worker**: Train autonomously in loops. Report metrics incrementally. Handles pruning (early stoppage), OOM, checkpointing. 
-- **Coordinator (You + Optional LLM)**: Run episodic reviews when *you* decide. Inspect trial history, check search health, propose bounds changes. AI agents (Claude, Cursor) can run reviews via MCP tools.
+- **Broker (Optuna TPE)**: Fast, deterministic suggestion engine. Suggestions and pruning happen in <10ms. Workers hit the broker and continue training immediately.
+- **Worker**: Trains autonomously in a loop. Reports metrics per epoch, handles pruning, OOM detection, and checkpointing.
+- **Coordinator (you + optional LLM)**: Run episodic reviews when you decide. Inspect trial history, check search health, propose bounds changes. AI agents (Cursor, Claude Code) can assist via MCP tools.
 
-All state lives in **SQLite** making it easy to resume reviews, audit decisions, and sync across machines.
+All state lives in **SQLite** — resumable, auditable, portable.
 
 ## Quick Start
 
 ### Step 1: Start the Broker
 
-The broker manages the study state and serves the dashboard. You can run it via Docker or Python.
-
-**Option A: Docker (Zero-Install)**
+**Option A: Docker (zero-install)**
 
 ```bash
 docker-compose up -d
@@ -61,50 +54,56 @@ python broker.py --daemon
 
 ### Step 2: Connect Your Workers
 
-Workers run your training loops. They can be on the same machine or remote.
-
-**Local Workers on the same machine**
+**Local worker (same machine)**
 
 ```bash
-# Replace 'train.py' with your own training script
 HPO_BROKER_URL=http://localhost:8000 HPO_STUDY_NAME=my_study python train.py
 ```
 
-**Remote Workers (Colab / Cloud GPU)**
-To connect remote workers to your local broker, use a tunnel:
+**Remote worker (Colab / cloud GPU)**
+
+To expose your local broker to remote workers, use a tunnel:
 
 ```bash
-# Local Terminal: Start broker with tunnel + auth
+# Generate a token
 export HPO_SECRET_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
 
-# ngrok (auto-generates URL)
+# Start broker with tunnel (ngrok auto-generates a URL)
 python broker.py --daemon --tunnel
 
-# OR Cloudflare (bring your own domain)
+# Or with Cloudflare (bring your own domain):
 python broker.py --daemon --tunnel-provider cloudflare --tunnel-url https://your-domain.com
+```
 
-# Prints: 🔥 Remote broker URL established: https://...
+Set the printed URL and token on your remote machine:
 
-# Remote Server Terminal: Set environment and run your worker
+```bash
 export HPO_BROKER_URL="https://..."
 export HPO_SECRET_TOKEN="<your-token>"
 python train.py
 ```
 
-### Step 3: Agent Integration (Optional)
+See [docs/INTEGRATION.md](docs/INTEGRATION.md) for more tunneling and auth options.
 
-Point Claude Code, Cursor, Antigravity, etc to the MCP server for agent-driven onboarding and reviews. See [IDE Setup](#ide-setup-agent-driven-onboarding--reviews) below.
+### Step 3: Agent Integration (optional)
+
+Point your IDE at the MCP server for agent-driven onboarding and inspection. See [IDE Setup](#ide-setup-agent-driven-onboarding--inspection).
 
 ### Environment Variables Reference
 
-Pathfinder supports the following optional environment variables for users:
-
-- `HPO_DATABASE_URL`: SQLite connection string (default: `sqlite:///hpo_studies.db`).
-- `HPO_BROKER_URL`: The URL where the broker is running (e.g. `http://localhost:8000`). Required by workers.
-- `HPO_STUDY_NAME`: The active study name. Overrides what is passed in code.
-- `HPO_SECRET_TOKEN`: Bearer token for securing broker endpoints in remote deployments.
-- `HPO_DEBUG`: Set to `1` to enable verbose debug logging in the broker.
-- `HPO_SPARKLINES`: Set to `1` in the worker to print a unicode performance curve on trial completion.
+| Variable | Default | Description |
+|---|---|---|
+| `HPO_DATABASE_URL` | `sqlite:///hpo_studies.db` | SQLite connection string. |
+| `HPO_BROKER_URL` | `http://localhost:8000` | URL where the broker is running. Required by workers. |
+| `HPO_STUDY_NAME` | *(none)* | Default study name when not passed explicitly. |
+| `HPO_SECRET_TOKEN` | *(none)* | Bearer token for securing broker endpoints in remote deployments. |
+| `HPO_DEBUG` | `0` | Set to `1` to enable verbose debug logging in the broker. |
+| `HPO_SPARKLINES` | `0` | Set to `1` to print a Unicode performance curve on trial completion. |
+| `HPO_BACKUP_ON_START` | `0` | Set to `1` to run a database backup when the broker starts. |
+| `HPO_CAPTURE_FULL_ENV` | `0` | Set to `1` to capture full `pip freeze` output (default: ML whitelist only). |
+| `HPO_TUNNEL_PROVIDER` | *(none)* | Tunnel provider for remote access: `ngrok` or `cloudflare`. |
+| `HPO_TUNNEL_URL` | *(none)* | Static tunnel URL when using `cloudflare` provider. |
+| `HPO_ALLOWED_ORIGINS` | *(none)* | Additional CORS origins (comma-separated) for the dashboard. |
 
 ---
 
@@ -112,109 +111,140 @@ Pathfinder supports the following optional environment variables for users:
 
 ### Optuna Engine
 
-- **Tree-structured Parzen Estimator Sampler**: Probability-based hyperparameter suggestions (beats grid search)
-- **ASHA Pruning**: Cuts underperforming trials early to save GPU time
-- **Single or Dual-Objective**: Optimize a single target, or map a Pareto front between one 'maximize' and one 'minimize' metric (e.g., accuracy vs. latency)
-  - *(Example: An [image segmentation model](https://github.com/Ishaan1402/crack-seg#crack-seg) could map a Pareto front to maximize Dice Score while minimizing BCE Loss).*
-- **fANOVA Importances**: Identifies which hyperparams actually matter to further guide your strategy
+- **TPE Sampler**: Tree-structured Parzen Estimator — probability-based hyperparameter suggestions that beat grid and random search
+- **Median Pruning**: Cuts underperforming trials early to save GPU time
+- **Single or Dual-Objective**: Optimize one target, or map a Pareto front between a maximize and a minimize metric (e.g., accuracy vs. loss)
+- **fANOVA Importances**: Identifies which hyperparameters actually matter
 
-### Tuning Coordinator
+### Study Health Monitoring
 
-- Dashboard shows health warnings (nudges to review, never auto-reviews)
-- 7-step review procedure: retrieve telemetry → evaluate fANOVA → safety/OOM check → accuracy self-regulation → propose bound adjustments → submit audit trail → generate model card
-- Search space proposals are staged, requiring your explicit approval before taking effect
-- Coordinator accuracy tracks your reviews' forecasted score improvements vs. measured deltas
-- Optional LLM integration (Claude, Gemini, OpenAI) for automatic reviews
+The dashboard and `.hpo_status.json` show a health tier:
 
-### Persistent Study State using SQLite
+| Tier | Meaning |
+|------|---------|
+| `healthy` | Trials are completing, metrics are improving |
+| `watch` | Stagnation or early warning signs |
+| `intervene` | High OOM rate, prolonged stagnation, or 100% prune rate |
+
+Health checks detect stagnation (best score flat-lining) and hardware failure patterns (CUDA OOM on specific batch sizes).
+
+### Persistent SQLite State
 
 All configuration, trials, reviews, and metadata live in `hpo_studies.db`:
-
-- Active search space
-- Trial results + VRAM telemetry
+- Active search space and HPO config
+- Trial results with VRAM telemetry
 - Coordinator review history
-- Study health tier
 - Generated model cards
+
+### MCP Server
+
+An MCP server (`hpo_mcp_server.py`) exposes structured study data through Model Context Protocol tools so your IDE agent can read study state, validate manifests, and register new studies.
+
+---
+
+## Agent Integration
+
+Pathfinder exposes MCP tools that let your IDE agent (Cursor, Claude Code, Antigravity) participate in two workflows:
+
+### Onboarding Flow
+
+1. Agent reads your training script, identifies tunable hyperparameters and metrics
+2. Agent drafts a `train.hpo.yaml` manifest
+3. Agent calls `validate_manifest` to check for errors
+4. Agent calls `init_from_manifest` to register the study in Optuna and SQLite
+5. Agent writes a minimal worker script from `templates/worker_minimal.py`
+
+### Inspection Flow
+
+1. Agent calls `get_study_data` to retrieve trial telemetry, health tier, fANOVA importances, and best trials
+2. Agent summarizes: current best score, health status, OOM rate, stagnation warnings
+3. Search space adjustments happen through the dashboard Settings UI or `hpo_cli.py`
+
+Key MCP tools: `validate_manifest`, `init_from_manifest`, `get_study_data`, `get_study_cards`, `export_manifest`.
+
+Trigger phrases: say **"integrate HPO"** or **"wire hyperparameter tuning"** and your agent will walk through the onboarding flow. For inspection, say **"show study health"** or **"check HPO progress."**
+
+See [AGENTS.md](AGENTS.md) for the full agent procedure.
 
 ---
 
 ## Onboarding Your Own Project
 
-If you cloned this to tune your own model, the easiest way to start is by having an agent (via Cursor, Claude Code, Antigravity, etc) write the manifest for you. 
+### 1. Write a manifest (`train.hpo.yaml`)
 
-After setting up the Pathfinder MCP server, simply open your training script and tell your agent something like **"help me wire this training script up to Pathfinder."**. The agent will read your script, identify tunable hyperparameters, and automatically draft the manifest.
+```yaml
+study_name: my_study
+metrics:
+  primary_score: accuracy
+  objectives:
+    - name: accuracy
+      direction: maximize
+      label: "Accuracy"
+    - name: loss
+      direction: minimize
+      label: "Loss"
+params:
+  - name: learning_rate
+    type: float_log
+    min: 1e-5
+    max: 1e-2
+  - name: batch_size
+    type: categorical
+    options: [4, 8, 16, 32]
+worker:
+  entrypoint: python train.py
+```
 
-Otherwise, you can onboard manually:
+The `primary_score` field tells the dashboard which objective to highlight.
 
-1. **Write a manifest** (`train.hpo.yaml`):
-  ```yaml
-   study_name: my_study
-   metrics:
-     objectives:
-       - name: loss
-         direction: minimize
-       - name: accuracy
-         direction: maximize
-   params:
-     - name: learning_rate
-       type: float_log
-       min: 1e-5
-       max: 1e-2
-     - name: batch_size
-       type: categorical
-       options: [4, 8, 16, 32]
-   worker:
-     entrypoint: python train.py
-  ```
-2. **Register the study**:
-  ```bash
-   python hpo_cli.py validate train.hpo.yaml
-   python hpo_cli.py init train.hpo.yaml
-  ```
-3. **Update your training script** (`train.py`):
-  Instead of hardcoding your hyperparameters, ask the Pathfinder broker for them at the start of your script, and report your loss at the end of each epoch. FastAPI endpoints will facilitate communication between Optuna and your training loop to auto-update inputs based on each trial's iterative output.
-  ```python
-   from src.hpo_client import TrialSession
+### 2. Register the study
 
-   # 1. Connect to broker and get parameters
-   session = TrialSession(broker_url="http://localhost:8000", study_name="my_study")
-   trial = session.suggest()
-   learning_rate = trial["params"]["learning_rate"]
+```bash
+python hpo_cli.py validate train.hpo.yaml
+python hpo_cli.py init train.hpo.yaml
+```
 
-   for epoch in range(epochs):
-       loss = train_one_epoch(lr=learning_rate)
+### 3. Update your training script
 
-       # 2. Report metrics (Pathfinder handles pruning automatically)
-       if session.report_epoch(epoch, loss=loss):
-           break # Trial was pruned
+```python
+from src.hpo_client import TrialSession
 
-   # 3. Mark completion
-   session.complete(epoch, loss=loss, state="COMPLETE")
-  ```
-4. **Run on your GPU** (set env vars first):
-  ```bash
-   export HPO_BROKER_URL=http://localhost:8000
-   export HPO_STUDY_NAME=my_study
-   python train.py
-  ```
+session = TrialSession()  # reads HPO_BROKER_URL / HPO_STUDY_NAME
+trial = session.suggest()
+params = trial["params"]
 
-Full integration walkthrough: [docs/INTEGRATION.md](docs/INTEGRATION.md)
+for epoch in range(epochs):
+    accuracy, loss = train_one_epoch(params, epoch)
+
+    if session.report_epoch(epoch, score=accuracy, loss=loss):
+        # Trial was pruned by the broker
+        session.complete(epoch, score=accuracy, loss=loss, state="PRUNED")
+        break
+
+session.complete(epoch, score=accuracy, loss=loss, state="COMPLETE")
+```
+
+The worker contract is three calls: `suggest()`, `report_epoch()`, `complete()`. Map your higher-is-better metric to `score` and your lower-is-better metric to `loss`. Full details: [docs/INTEGRATION.md](docs/INTEGRATION.md).
+
+### 4. Run on your GPU
+
+```bash
+export HPO_BROKER_URL=http://localhost:8000
+export HPO_STUDY_NAME=my_study
+python train.py
+```
 
 ---
 
-## IDE Setup (Agent-Driven Onboarding & Reviews)
+## IDE Setup (Agent-Driven Onboarding & Inspection)
 
 ### Cursor
 
-1. **Settings → Features → MCP**
-2. **+ Add New MCP Server**
-3. Name: `pathfinder`
-  Type: `command`  
-   Command: `source .venv/bin/activate && python3 hpo_mcp_server.py`
+**Settings → Features → MCP → + Add New MCP Server**
+
+Name: `pathfinder`, Type: `command`, Command: `source .venv/bin/activate && python3 hpo_mcp_server.py`
 
 ### Claude Code / Antigravity
-
-Add to your MCP config (`~/.config/claudecode/mcp_config.json` or similar):
 
 ```json
 {
@@ -230,16 +260,7 @@ Add to your MCP config (`~/.config/claudecode/mcp_config.json` or similar):
 }
 ```
 
-### Other MCP Clients (OpenCode, etc.)
-
-Pathfinder is compliant with the Model Context Protocol standard. You can integrate it with any other MCP-compatible IDE or agent using its standard configuration method, pointing it to `python3 hpo_mcp_server.py`.
-
-Then tell your agent:
-
-- **"integrate HPO"** → agent drafts manifest, validates, registers study
-- **"run a coordinator review"** → agent fetches study data, rates health, proposes bounds changes
-
-See [AGENTS.md](AGENTS.md) for the full procedure.
+Pathfinder is compliant with the Model Context Protocol standard — it works with any MCP-compatible IDE.
 
 ---
 
@@ -249,21 +270,25 @@ See [AGENTS.md](AGENTS.md) for the full procedure.
 # Start broker + dashboard
 python broker.py --daemon
 
-# Validate & initialize a study from manifest
+# Validate and initialize a study from manifest
 python hpo_cli.py validate train.hpo.yaml
 python hpo_cli.py init train.hpo.yaml
 
 # Check study health
 python hpo_cli.py status
 
-# Run a manual coordinator review (or prints prompt for copy-paste)
-python hpo_cli.py review
-
 # Export study config back to YAML
 python hpo_cli.py manifest my_study
 
-# Commit pending search space changes
-python hpo_cli.py apply
+# Export/import study data
+python hpo_cli.py export my_study --output my_study.json
+python hpo_cli.py import my_study.json
+
+# Generate a model card
+python hpo_cli.py modelcard my_study
+
+# Delete a study
+python hpo_cli.py delete my_study
 
 # Run tests
 pytest tests/ -q
@@ -271,19 +296,25 @@ pytest tests/ -q
 
 ---
 
+## Limitations
+
+This is not a production HPO framework. It runs on a single machine with SQLite. It does not support distributed studies, Postgres backends, or advanced samplers like MOTPE or CMA-ES. Use Optuna's native dashboard or W&B Sweeps for production workloads. Pathfinder is a demonstration of MCP/agent integration for ML experiment workflows.
+
+## What I Learned
+
+Building Pathfinder taught me the MCP architecture: how to expose structured tool surfaces so an IDE agent can participate in a tuning loop without blocking the hot path. I learned the lease/reap concurrency pattern for worker lifecycle management — detecting dead workers and reclaiming their trials without false positives. I also gained respect for SQLite as an application database; with WAL mode and careful connection pooling, it handled concurrent broker + dashboard + MCP reads without ever becoming the bottleneck.
+
+---
+
 ## Reference: crack-seg
 
-This Pathfinder instance was initially tuned for [crack-seg](https://github.com/Ishaan1402/crack-seg#crack-seg), a **U-Net pixel-level segmentation model** trained on high-res UAV bridge imagery. See [colab_worker.py](colab_worker.py) for the full reference implementation (dataset download, model setup, training loop).
-
-**Don't modify `colab_worker.py`** unless you're maintaining the bridge-crack project. Cloners should use `templates/worker_minimal.py` instead.
+Pathfinder was initially built to tune [crack-seg](https://github.com/Ishaan1402/crack-seg#crack-seg), a U-Net pixel-level segmentation model trained on UAV bridge imagery. The reference implementation (`colab_worker.py`) is preserved in [archive/](archive/). **Do not fork it** for new studies — use `templates/worker_minimal.py` instead.
 
 ---
 
 ## Docs
 
-- **[AGENTS.md](AGENTS.md)** — Guide for AI agents (Claude, Cursor, Antigravity)
-- **[CLAUDE.md](CLAUDE.md)** — Development commands and architecture for Claude Code
-- **[examples/onboarding/](examples/onboarding/)** — Step-by-step walkthrough for a new project
+- **[AGENTS.md](AGENTS.md)** — Guide for AI agents (Cursor, Claude Code, Antigravity)
 - **[docs/INTEGRATION.md](docs/INTEGRATION.md)** — Worker integration contract details
 
 ---

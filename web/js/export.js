@@ -23,11 +23,11 @@ function exportTrialsToCsv() {
                 const row = [
                     `#${t.number}`,
                     t.state,
-                    t.bce !== null && t.bce !== undefined ? t.bce.toFixed(6) : "",
-                    t.dice !== null && t.dice !== undefined ? t.dice.toFixed(6) : ""
+                    t.loss !== null && t.loss !== undefined ? t.loss.toFixed(6) : "",
+                    t.score !== null && t.score !== undefined ? t.score.toFixed(6) : ""
                 ];
                 if (ev.enabled) {
-                    row.push(t.dice_eval_fixed !== null && t.dice_eval_fixed !== undefined ? t.dice_eval_fixed.toFixed(6) : "");
+                    row.push(t.score_eval_fixed !== null && t.score_eval_fixed !== undefined ? t.score_eval_fixed.toFixed(6) : "");
                 }
                 paramKeys.forEach(k => {
                     const val = t.params[k];
@@ -69,8 +69,8 @@ async function exportParetoFront() {
                 data.pareto_front.forEach(t => {
                     const row = [
                         `#${t.number}`,
-                        t.bce !== null && t.bce !== undefined ? t.bce.toFixed(6) : "",
-                        t.dice !== null && t.dice !== undefined ? t.dice.toFixed(6) : ""
+                        t.loss !== null && t.loss !== undefined ? t.loss.toFixed(6) : "",
+                        t.score !== null && t.score !== undefined ? t.score.toFixed(6) : ""
                     ];
                     paramKeys.forEach(k => {
                         const val = t.params[k];

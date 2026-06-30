@@ -46,7 +46,7 @@ def test_worker_lifecycle_records_result(client, initialized_study):
             "score": 0.7,
             "loss": 0.3,
             "weights_path": "model.pt",
-            "history": [{"epoch": 2, "score": 0.7, "loss": 0.3, "dice": 0.7, "bce": 0.3}],
+            "history": [{"epoch": 2, "score": 0.7, "loss": 0.3}],
             "state": "COMPLETE",
         },
     )
@@ -62,7 +62,7 @@ def test_worker_lifecycle_records_result(client, initialized_study):
 
 
 def test_delete_study_removes_optuna_and_metadata(client, initialized_study):
-    from hpo_mcp_server import delete_study
+    from src.onboarding import delete_study_internal as delete_study
 
     # Produce a trial + a TrialResult row.
     worker_id = str(uuid.uuid4())
@@ -70,7 +70,7 @@ def test_delete_study_removes_optuna_and_metadata(client, initialized_study):
     client.post("/api/complete_trial", json={
         "study_name": initialized_study, "trial_id": sug["trial_id"], "worker_id": worker_id,
         "epoch": 1, "score": 0.6, "loss": 0.4, "weights_path": "m.pt",
-        "history": [{"epoch": 1, "score": 0.6, "loss": 0.4, "dice": 0.6, "bce": 0.4}], "state": "COMPLETE",
+        "history": [{"epoch": 1, "score": 0.6, "loss": 0.4}], "state": "COMPLETE",
     })
 
     res = delete_study(initialized_study, confirm=False)
@@ -124,7 +124,7 @@ def test_complete_is_idempotent(client, initialized_study):
         "score": 0.6,
         "loss": 0.4,
         "weights_path": "model.pt",
-        "history": [{"epoch": 1, "score": 0.6, "loss": 0.4, "dice": 0.6, "bce": 0.4}],
+        "history": [{"epoch": 1, "score": 0.6, "loss": 0.4}],
         "state": "COMPLETE",
     }
     first = client.post("/api/complete_trial", json=payload)

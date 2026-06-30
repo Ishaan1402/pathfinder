@@ -1,5 +1,5 @@
 function getPrimaryScoreKey() {
-    return window.HPOState.data.hpoConfig?.primary_score_key || "dice";
+    return window.HPOState.data.hpoConfig?.primary_score_key || "score";
 }
 
 function filterTrialsForDisplay(trials, paretoSet) {
@@ -74,9 +74,9 @@ function applyTablePipeline(trials, tableId) {
 
 function cycleTableSort(tableId, colKey) {
     const sort = window.HPOState.tables[tableId].sort;
-    // Loss (bce) defaults to ascending (lower is better).
-    // Others (number/Trial, score/dice/eval, parameters) default to descending (higher/latest is better).
-    const defaultDir = (colKey === "bce") ? "asc" : "desc";
+    // Loss defaults to ascending (lower is better).
+    // Others (number/Trial, score/eval, parameters) default to descending (higher/latest is better).
+    const defaultDir = (colKey === "loss") ? "asc" : "desc";
     
     if (sort.col !== colKey) {
         sort.col = colKey;
