@@ -1,4 +1,3 @@
-import os
 import json
 import logging
 import optuna
@@ -150,7 +149,11 @@ def init_study_from_manifest_dict(data: Dict[str, Any], force: bool = False) -> 
 
     if study_exists and force:
         # Call the thorough delete_study tool to purge all trials and metadata
-        delete_study_internal(study_name=study_name, confirm=True)
+        result = delete_study_internal(study_name=study_name, confirm=True)
+        if not result.get("success"):
+            raise RuntimeError(
+                f"Failed to delete existing study '{study_name}': {result.get('error', 'unknown error')}"
+            )
 
     metrics = data["metrics"]
     active_search_space = _manifest_params_to_search_space(data["params"])

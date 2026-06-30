@@ -1,8 +1,7 @@
 import time
 
 import json
-from datetime import datetime, timedelta
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any
 from pydantic import BaseModel
 from fastapi import HTTPException
 import optuna
@@ -11,7 +10,6 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from src.db_manager import get_db_session, DATABASE_URL
-from src.schema import AgentReasoningLog, SuggestMetric, TrialLease
 from src.hpo_config import load_hpo_config, normalize_trial_params
 from src.search_space import (
     load_search_space,
@@ -20,22 +18,30 @@ from src.search_space import (
     _worker_ready_params,
     _enqueue_single_active_categoricals,
     suggest_params_from_space,
-    _persist_fixed_categorical_params,
     _finalize_trial_params,
     _expected_search_params,
 )
-from src.leases import _reap_expired_leases, _try_claim_lease
+from src.leases import _reap_expired_leases, _try_claim_lease, delete_lease_by_trial_id
 
 
 def get_or_create_study(study_name: str):
     try:
         return optuna.load_study(study_name=study_name, storage=DATABASE_URL)
     except KeyError:
-        print(f"Study '{study_name}' not found. Initializing new multi-objective study...")
+        print(f"Study '{study_name}' not found. Checking stored config for directions...")
+        directions = None
+        try:
+            cfg = load_hpo_config(study_name)
+            directions = cfg.get("directions")
+        except Exception:
+            pass
+        if not directions:
+            directions = ["minimize", "maximize"]
+            print("No stored directions found. Defaulting to multi-objective (minimize, maximize).")
         return optuna.create_study(
             study_name=study_name,
             storage=DATABASE_URL,
-            directions=["minimize", "maximize"],
+            directions=directions,
             load_if_exists=True
         )
 
@@ -83,14 +89,25 @@ def _repair_categorical_param_indices(session: Session, study_name: str) -> int:
         try:
             dist_data = json.loads(dist_json)
             choices = dist_data["attributes"]["choices"]
-            idx = int(float(param_value))
-            if 0 <= idx < len(choices):
+            # Determine if param_value is stored as an internal index or an external value.
+            # If it can be parsed as a float, check whether it matches a choice BY VALUE first.
+            try:
+                external = float(param_value)
+            except (ValueError, TypeError):
+                external = param_value
+            # If the stored value equals one of the choices literally, treat it as an
+            # external value and convert to its internal index. Otherwise, assume it is
+            # already a valid internal index.
+            if external in choices:
+                internal = choices.index(external)
+            elif isinstance(external, float) and int(external) in choices:
+                internal = choices.index(int(external))
+            else:
+                # Already an internal index or unrecognised; skip repair.
+                idx = int(float(param_value))
+                if 0 <= idx < len(choices):
+                    continue
                 continue
-            external = float(param_value)
-            if external not in choices and int(external) not in choices:
-                continue
-            value = int(external) if int(external) in choices else external
-            internal = choices.index(value)
             session.execute(
                 text(
                     "UPDATE trial_params SET param_value = :v WHERE param_id = :id"
@@ -108,13 +125,19 @@ def handle_api_suggest_trial(req: SuggestRequest):
     trial = None
     start_time = time.time()
     try:
+        # Load the study first to verify it exists. This raises a clean 404 if the study is uninitialized.
+        study = load_study(req.study_name)
+
         # C2 Fix: thread session explicitly
         with get_db_session() as session:
-            repaired = _repair_categorical_param_indices(session, req.study_name)
-            if repaired:
-                print(f"Repaired {repaired} corrupt categorical param row(s) in study '{req.study_name}'.")
-
-        study = load_study(req.study_name)
+            try:
+                repaired = _repair_categorical_param_indices(session, req.study_name)
+                if repaired:
+                    print(f"Repaired {repaired} corrupt categorical param row(s) in study '{req.study_name}'.")
+            except Exception as e:
+                # Fallback: if there is a database issue during repair, do not crash suggestion
+                import logging
+                logging.getLogger(__name__).warning(f"Failed to repair categorical param indices: {e}")
         space = load_search_space(req.study_name)
         hpo_config = load_hpo_config(req.study_name)
         _cleanup_stuck_running_trials(study, space)
@@ -151,44 +174,53 @@ def handle_api_suggest_trial(req: SuggestRequest):
         if not trial:
             source = "new_trial"
             _enqueue_single_active_categoricals(study, space)
-            trial = study.ask()
-            trial_id = trial._trial_id
 
-            # Lease newly created trial immediately (fresh trial_id, so this always wins).
-            with get_db_session() as session:
-                _try_claim_lease(session, req.study_name, trial_id, req.worker_id or "anonymous")
+            # Optuna does not support narrowing categorical distributions after the first
+            # trial.  TPE always samples from the full historical choice set.  When a user
+            # deactivates a choice (dashboard Settings), we must handle TPE sampling an
+            # inactive value.  We retry up to 20 times, failing each attempt in Optuna.
+            # This tells TPE that the deactivated region is unproductive — a best-effort
+            # heuristic given Optuna's static-distribution design.  On the final attempt,
+            # we substitute a random active choice instead of 500-ing the worker.
+            MAX_RESAMPLE_ATTEMPTS = 20
+            for attempt in range(MAX_RESAMPLE_ATTEMPTS):
+                trial = study.ask()
+                trial_id = trial._trial_id
 
-            try:
-                params = suggest_params_from_space(study, trial, space)
-                _persist_fixed_categorical_params(study, trial, space)
-            except Exception:
-                try:
-                    study.tell(trial.number, state=TrialState.FAIL)
-                except Exception:
-                    pass
                 with get_db_session() as session:
-                    delete_lease_by_trial_id(session, trial_id)
-                    session.commit()
-                raise
+                    claimed = _try_claim_lease(session, req.study_name, trial_id, req.worker_id or "anonymous")
+                    assert claimed, f"Lease claim failed for trial {trial_id}"
 
-            with get_db_session() as session:
-                existing = (
-                    session.query(AgentReasoningLog).filter_by(trial_id=trial_id).first()
-                )
-                if not existing:
-                    est_imp = req.estimated_score_improvement
-                    session.add(
-                        AgentReasoningLog(
-                            trial_id=trial_id,
-                            study_name=req.study_name,
-                            model_version=req.agent_model or "optuna-tpe",
-                            prompt_strategy=req.prompt_strategy or "tpe_sampler",
-                            predicted_outcome_rationale=req.reasoning or "Autonomous worker suggestion request.",
-                            estimated_score_improvement=float(est_imp if est_imp is not None else 0.0),
-                        )
-                    )
-                    session.commit()
-
+                try:
+                    params = suggest_params_from_space(study, trial, space)
+                    break
+                except ValueError:
+                    # TPE sampled an inactive categorical
+                    if attempt < MAX_RESAMPLE_ATTEMPTS - 1:
+                        # Fail the trial and retry with a fresh one
+                        try:
+                            study.tell(trial.number, state=TrialState.FAIL)
+                        except Exception:
+                            pass
+                        with get_db_session() as session:
+                            delete_lease_by_trial_id(session, trial_id)
+                            session.commit()
+                        continue
+                    # Final attempt — fallback: pick random active values for violated categoricals
+                    import random
+                    fixed = _finalize_trial_params(dict(trial.params), space)
+                    for param, cfg in space.items():
+                        if isinstance(cfg, dict) and cfg.get("type") == "categorical":
+                            active = list(cfg.get("active") or cfg.get("options") or [])
+                            if active and fixed.get(param) not in active:
+                                fallback_choice = random.choice(active)
+                                fixed[param] = fallback_choice
+                                print(
+                                    f"WARNING: Trial {trial.number} — {param} "
+                                    f"outside active {active}. Falling back to {fallback_choice!r}."
+                                )
+                    params = fixed
+            
         params = _finalize_trial_params(params, space)
         missing = [p for p in _expected_search_params(space) if p not in params]
         if missing:
@@ -204,19 +236,8 @@ def handle_api_suggest_trial(req: SuggestRequest):
                 detail=f"Trial {trial.number} missing parameters {missing}. Expected {_expected_search_params(space)}.",
             )
 
-        # Log SuggestMetric
         end_time = time.time()
         latency_ms = (end_time - start_time) * 1000
-        try:
-            with get_db_session() as session:
-                session.add(SuggestMetric(
-                    study_name=req.study_name,
-                    latency_ms=latency_ms,
-                    source=source
-                ))
-                session.commit()
-        except Exception as metric_err:
-            print(f"Error logging suggest metric: {metric_err}")
 
         config = hpo_config
         return {
@@ -233,29 +254,3 @@ def handle_api_suggest_trial(req: SuggestRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-def _enqueue_manual_trial(study, manual: Dict[str, Any], space: Dict[str, Any], summary: str = "AI Coordinator suggested manual trial.") -> str:
-    """Enqueue one coordinator-proposed trial; TPE still drives every other suggest."""
-    config = load_hpo_config(study.study_name)
-    params = normalize_trial_params(dict(manual), config)
-    missing = [p for p in _expected_search_params(space) if p not in params]
-    if missing:
-        return f"Manual trial missing params {missing}; not enqueued."
-    try:
-        study.enqueue_trial(params)
-        waiting = [t for t in study.trials if t.state == TrialState.WAITING]
-        if waiting:
-            new_trial = max(waiting, key=lambda t: t._trial_id)
-            with get_db_session() as session:
-                session.add(
-                    AgentReasoningLog(
-                        trial_id=new_trial._trial_id,
-                        study_name=study.study_name,
-                        model_version="coordinator",
-                        prompt_strategy="coordinator_review",
-                        predicted_outcome_rationale=summary,
-                        estimated_score_improvement=0.0
-                    )
-                )
-        return f"Enqueued manual trial: {params}."
-    except Exception as e:
-        return f"Could not enqueue manual trial: {e}"

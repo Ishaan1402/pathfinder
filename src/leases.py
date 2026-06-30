@@ -1,5 +1,5 @@
 import traceback
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from pydantic import BaseModel
 from fastapi import HTTPException
@@ -16,7 +16,7 @@ LEASE_TTL_SECONDS = 45
 
 def _reap_stale_running_trials(study, study_name: str, session) -> int:
     """Fail RUNNING trials whose worker lease expired or has no active lease."""
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     expired_trial_ids = [
         row.trial_id
         for row in session.query(TrialLease.trial_id).filter(
@@ -35,6 +35,13 @@ def _reap_stale_running_trials(study, study_name: str, session) -> int:
     for t in study.trials:
         if t.state != TrialState.RUNNING:
             continue
+        # Skip trials that were created very recently (no lease row yet) to avoid
+        # reaping a trial that a concurrent suggest call is still setting up.
+        if t._trial_id not in active_leased_ids and t._trial_id not in expired_trial_ids:
+            if t.datetime_start is not None:
+                age = (now - t.datetime_start.replace(tzinfo=None)).total_seconds()
+                if age < LEASE_TTL_SECONDS:
+                    continue
         stale = t._trial_id in expired_trial_ids or t._trial_id not in active_leased_ids
         if not stale:
             continue
@@ -66,7 +73,7 @@ def _try_claim_lease(session, study_name: str, trial_id: int, worker_id: str,
     sole mechanism preventing two workers from being handed the same trial. Safe under
     concurrency: SQLite (WAL + busy_timeout) serializes writers and Postgres locks the row.
     """
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     new_expiry = now + timedelta(seconds=ttl_seconds)
     updated = session.query(TrialLease).filter(
         TrialLease.trial_id == trial_id,
@@ -101,8 +108,7 @@ def _lease_is_owned(study_name: str, trial_id: int, worker_id: Optional[str]) ->
     Workers prove ownership with the ``worker_id`` returned from /api/suggest_trial before
     they may report epochs or complete an in-flight trial. Terminal trials skip this check
     (see callers): idempotent retries and post-prune completes must still record results even
-    though the lease was already deleted. Note: compared against naive UTC because lease
-    timestamps are stored via ``datetime.utcnow()``.
+    though the lease was already deleted. Lease timestamps are stored as naive UTC.
     """
     if not worker_id:
         return False
@@ -112,7 +118,7 @@ def _lease_is_owned(study_name: str, trial_id: int, worker_id: Optional[str]) ->
         ).first()
         if lease is None:
             return False
-        if lease.lease_expires_at is not None and lease.lease_expires_at < datetime.utcnow():
+        if lease.lease_expires_at is not None and lease.lease_expires_at < datetime.now(timezone.utc).replace(tzinfo=None):
             return False
         return True
 
@@ -132,7 +138,7 @@ def handle_api_heartbeat(req: HeartbeatRequest):
                 leased_to=req.worker_id
             ).first()
             if lease:
-                lease.lease_expires_at = datetime.utcnow() + timedelta(seconds=LEASE_TTL_SECONDS)
+                lease.lease_expires_at = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(seconds=LEASE_TTL_SECONDS)
                 session.commit()
                 return {"success": True, "message": "Heartbeat acknowledged"}
             return {"success": False, "message": "Lease not found or expired"}
