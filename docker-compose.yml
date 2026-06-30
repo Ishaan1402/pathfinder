@@ -2,10 +2,13 @@
 services:
   broker:
     build: .
+    restart: unless-stopped
     ports:
       - "8000:8000"
-    volumes:
-      - ./hpo_studies.db:/app/hpo_studies.db
     environment:
       - HPO_DATABASE_URL=sqlite:///hpo_studies.db
       - HPO_DEBUG=0
+    # NOTE: the database is ephemeral by default (inside the container).
+    # For persistent storage, mount a volume at /app and pre-create hpo_studies.db:
+    #   volumes:
+    #     - ./data:/app

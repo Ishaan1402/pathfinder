@@ -20,7 +20,7 @@ from src.metrics import (
     loss_objective_index,
     score_objective_index,
 )
-from src.hpo_coordinator import get_fanova_importances, get_best_primary_score
+from src.analytics import get_fanova_importances
 
 
 def _complete_trial(study, values, params=None):
@@ -71,12 +71,6 @@ class TestMetrics(unittest.TestCase):
         self.assertEqual(get_score_from_dirs(trial, study.directions), 0.8)
         self.assertEqual(get_loss_from_dirs(trial, study.directions), 0.2)
 
-    def test_get_best_primary_score_minimize_fallback(self):
-        study = optuna.create_study(direction="minimize")
-        _complete_trial(study, 0.25)
-        _complete_trial(study, 0.10)
-        self.assertEqual(get_best_primary_score(study), 0.10)
-
     def test_fanova_importances_no_score_objective(self):
         study = optuna.create_study(
             study_name="test_fanova_no_score_" + self._testMethodName,
@@ -93,7 +87,7 @@ class TestMetrics(unittest.TestCase):
         study = optuna.create_study(directions=["minimize", "maximize"])
         _complete_trial(study, [0.5, 0.6])
         _complete_trial(study, [0.4, 0.7])
-        with patch("src.hpo_coordinator.score_objective_index", return_value=None):
+        with patch("src.analytics.score_objective_index", return_value=None):
             result = get_fanova_importances(study, {})
         self.assertEqual(result, {})
 

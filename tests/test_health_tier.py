@@ -26,7 +26,7 @@ from optuna.trial import TrialState
 
 from src.db_manager import init_db, get_db_session
 from src.schema import TrialResult, StudyStatus
-from src.hpo_coordinator import compute_health_tier
+from src.health import compute_health_tier
 
 
 class TestHealthTier(unittest.TestCase):

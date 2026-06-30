@@ -21,12 +21,12 @@ def base_manifest_data():
     return {
         "study_name": "segmentation_hpo_test",
         "metrics": {
-            "primary_score": "dice",
+            "primary_score": "score",
             "objectives": [
                 {
-                    "name": "dice",
+                    "name": "score",
                     "direction": "maximize",
-                    "label": "Dice Score"
+                    "label": "Score"
                 },
                 {
                     "name": "loss",
@@ -89,7 +89,7 @@ def test_validate_manifest_errors(base_manifest_data):
 
     # Rule 2: metrics.objectives has at least one objective
     data = base_manifest_data.copy()
-    data["metrics"] = {"primary_score": "dice", "objectives": []}
+    data["metrics"] = {"primary_score": "score", "objectives": []}
     errors, _ = validate_manifest(data)
     assert any("metrics.objectives must contain at least one objective definition" in e for e in errors)
 
@@ -97,7 +97,7 @@ def test_validate_manifest_errors(base_manifest_data):
     data = base_manifest_data.copy()
     data["metrics"] = {
         "primary_score": "accuracy",
-        "objectives": [{"name": "dice", "direction": "maximize", "label": "Dice"}]
+        "objectives": [{"name": "score", "direction": "maximize", "label": "Score"}]
     }
     errors, _ = validate_manifest(data)
     assert any("metrics.primary_score must reference a valid defined objective name" in e for e in errors)
@@ -105,7 +105,7 @@ def test_validate_manifest_errors(base_manifest_data):
     # Rule 4: Every objective has name, direction, label
     data = base_manifest_data.copy()
     data["metrics"] = {
-        "primary_score": "dice",
+        "primary_score": "score",
         "objectives": [{"name": "", "direction": "invalid_dir", "label": ""}]
     }
     errors, _ = validate_manifest(data)
@@ -114,10 +114,10 @@ def test_validate_manifest_errors(base_manifest_data):
     # Rule 5: Duplicate objective names
     data = base_manifest_data.copy()
     data["metrics"] = {
-        "primary_score": "dice",
+        "primary_score": "score",
         "objectives": [
-            {"name": "dice", "direction": "maximize", "label": "Dice"},
-            {"name": "dice", "direction": "minimize", "label": "Dice 2"}
+            {"name": "score", "direction": "maximize", "label": "Score"},
+            {"name": "score", "direction": "minimize", "label": "Dice 2"}
         ]
     }
     errors, _ = validate_manifest(data)
@@ -264,7 +264,7 @@ def test_mappings(base_manifest_data):
 
     config = _manifest_to_hpo_config(base_manifest_data)
     assert config["config_version"] == 2
-    assert config["metric_score_label"] == "Dice Score"
+    assert config["metric_score_label"] == "Score"
     assert config["metric_loss_label"] == "BCE Loss"
     assert config["eval_protocol"]["enabled"] is True
     assert config["eval_protocol"]["fixed_resolution"] == 512
@@ -359,31 +359,29 @@ def test_cli_init_and_manifest_roundtrip(tmp_path, base_manifest_data):
     assert len(exported_data["params"]) == len(data["params"])
     assert exported_data["metrics"]["primary_score"] == data["metrics"]["primary_score"]
 
-def test_api_endpoints(client, base_manifest_data):
+def test_api_endpoints(base_manifest_data):
+    from src.onboarding import init_study_from_manifest_dict
+
     study_name = "test_api_manifest_study"
-    base_manifest_data["study_name"] = study_name
+    data = base_manifest_data.copy()
+    data["study_name"] = study_name
 
-    # Validate endpoint
-    res = client.post("/api/validate_manifest", json={"yaml": yaml.dump(base_manifest_data)})
-    assert res.status_code == 200
-    data = res.json()
-    assert data["success"] is True
+    # Validate
+    errors, warnings = validate_manifest(data)
+    assert len(errors) == 0
 
-    # Init endpoint
-    res_init = client.post("/api/init_from_manifest?force=true", json={"yaml": yaml.dump(base_manifest_data)})
-    assert res_init.status_code == 200
-    data_init = res_init.json()
-    assert data_init["success"] is True
-    assert data_init["study_name"] == study_name
+    # Init
+    result = init_study_from_manifest_dict(data, force=True)
+    assert "successfully initialized" in result.lower()
 
     # Init duplicate error without force
-    res_dup = client.post("/api/init_from_manifest?force=false", json={"yaml": yaml.dump(base_manifest_data)})
-    assert res_dup.status_code == 400
-    assert "already exists" in res_dup.json()["detail"]
+    with pytest.raises(ValueError, match="already exists"):
+        init_study_from_manifest_dict(data, force=False)
 
 
 def test_manifest_metric_ordering(client, base_manifest_data):
     import optuna
+    from src.onboarding import init_study_from_manifest_dict
     from src.db_manager import get_db_session
     from src.schema import TrialResult
     
@@ -392,26 +390,25 @@ def test_manifest_metric_ordering(client, base_manifest_data):
     data_1 = base_manifest_data.copy()
     data_1["study_name"] = study_name_1
     data_1["metrics"] = {
-        "primary_score": "dice",
+        "primary_score": "score",
         "objectives": [
-            {"name": "dice", "direction": "maximize", "label": "Dice"},
+            {"name": "score", "direction": "maximize", "label": "Score"},
             {"name": "loss", "direction": "minimize", "label": "Loss"}
         ]
     }
     
-    res_init_1 = client.post("/api/init_from_manifest?force=true", json={"yaml": yaml.dump(data_1)})
-    assert res_init_1.status_code == 200
+    init_study_from_manifest_dict(data_1, force=True)
     
     # Suggest trial
     res_sug_1 = client.post("/api/suggest_trial", json={"study_name": study_name_1, "worker_id": "w1"})
     assert res_sug_1.status_code == 200
     trial_id_1 = res_sug_1.json()["trial_id"]
     
-    # Complete trial with dice=0.95, loss=0.05
+    # Complete trial with score=0.95, loss=0.05
     res_comp_1 = client.post("/api/complete_trial", json={
         "study_name": study_name_1, "trial_id": trial_id_1, "worker_id": "w1",
         "epoch": 1, "score": 0.95, "loss": 0.05, "weights_path": "m.pt",
-        "history": [{"epoch": 1, "score": 0.95, "loss": 0.05, "dice": 0.95, "bce": 0.05}], "state": "COMPLETE",
+        "history": [{"epoch": 1, "score": 0.95, "loss": 0.05}], "state": "COMPLETE",
     })
     assert res_comp_1.status_code == 200
     
@@ -427,15 +424,14 @@ def test_manifest_metric_ordering(client, base_manifest_data):
     data_2 = base_manifest_data.copy()
     data_2["study_name"] = study_name_2
     data_2["metrics"] = {
-        "primary_score": "dice",
+        "primary_score": "score",
         "objectives": [
             {"name": "loss", "direction": "minimize", "label": "Loss"},
-            {"name": "dice", "direction": "maximize", "label": "Dice"}
+            {"name": "score", "direction": "maximize", "label": "Score"}
         ]
     }
     
-    res_init_2 = client.post("/api/init_from_manifest?force=true", json={"yaml": yaml.dump(data_2)})
-    assert res_init_2.status_code == 200
+    init_study_from_manifest_dict(data_2, force=True)
     
     res_sug_2 = client.post("/api/suggest_trial", json={"study_name": study_name_2, "worker_id": "w2"})
     assert res_sug_2.status_code == 200
@@ -444,7 +440,7 @@ def test_manifest_metric_ordering(client, base_manifest_data):
     res_comp_2 = client.post("/api/complete_trial", json={
         "study_name": study_name_2, "trial_id": trial_id_2, "worker_id": "w2",
         "epoch": 1, "score": 0.95, "loss": 0.05, "weights_path": "m.pt",
-        "history": [{"epoch": 1, "score": 0.95, "loss": 0.05, "dice": 0.95, "bce": 0.05}], "state": "COMPLETE",
+        "history": [{"epoch": 1, "score": 0.95, "loss": 0.05}], "state": "COMPLETE",
     })
     assert res_comp_2.status_code == 200
     
@@ -457,6 +453,8 @@ def test_manifest_metric_ordering(client, base_manifest_data):
 
 def test_single_objective_minimize(client, base_manifest_data):
     import optuna
+    from src.onboarding import init_study_from_manifest_dict
+
     study_name = "test_single_min"
     data = base_manifest_data.copy()
     data["study_name"] = study_name
@@ -467,8 +465,7 @@ def test_single_objective_minimize(client, base_manifest_data):
         ]
     }
     
-    res_init = client.post("/api/init_from_manifest?force=true", json={"yaml": yaml.dump(data)})
-    assert res_init.status_code == 200
+    init_study_from_manifest_dict(data, force=True)
     
     study = optuna.load_study(study_name=study_name, storage=os.environ["HPO_DATABASE_URL"])
     assert len(study.directions) == 1
@@ -481,7 +478,7 @@ def test_single_objective_minimize(client, base_manifest_data):
     res_comp = client.post("/api/complete_trial", json={
         "study_name": study_name, "trial_id": trial_id, "worker_id": "w3",
         "epoch": 1, "score": 0.0, "loss": 0.035, "weights_path": "m.pt",
-        "history": [{"epoch": 1, "score": 0.0, "loss": 0.035, "dice": 0.0, "bce": 0.035}], "state": "COMPLETE",
+        "history": [{"epoch": 1, "score": 0.0, "loss": 0.035}], "state": "COMPLETE",
     })
     assert res_comp.status_code == 200
     
@@ -492,6 +489,7 @@ def test_single_objective_minimize(client, base_manifest_data):
 
 
 def test_deep_cleanup_on_force_overwrite(client, base_manifest_data):
+    from src.onboarding import init_study_from_manifest_dict
     from src.db_manager import get_db_session
     from src.schema import SystemConfiguration, TrialResult
     
@@ -500,8 +498,7 @@ def test_deep_cleanup_on_force_overwrite(client, base_manifest_data):
     data["study_name"] = study_name
     
     # 1. Initialize first time
-    res_init1 = client.post("/api/init_from_manifest?force=true", json={"yaml": yaml.dump(data)})
-    assert res_init1.status_code == 200
+    init_study_from_manifest_dict(data, force=True)
     
     res_sug = client.post("/api/suggest_trial", json={"study_name": study_name, "worker_id": "w4"})
     assert res_sug.status_code == 200
@@ -510,7 +507,7 @@ def test_deep_cleanup_on_force_overwrite(client, base_manifest_data):
     res_comp = client.post("/api/complete_trial", json={
         "study_name": study_name, "trial_id": trial_id, "worker_id": "w4",
         "epoch": 1, "score": 0.8, "loss": 0.2, "weights_path": "m.pt",
-        "history": [{"epoch": 1, "score": 0.8, "loss": 0.2, "dice": 0.8, "bce": 0.2}], "state": "COMPLETE",
+        "history": [{"epoch": 1, "score": 0.8, "loss": 0.2}], "state": "COMPLETE",
     })
     assert res_comp.status_code == 200
     
@@ -520,8 +517,7 @@ def test_deep_cleanup_on_force_overwrite(client, base_manifest_data):
         assert session.query(TrialResult).filter_by(study_name=study_name).count() > 0
         
     # 2. Force re-initialize
-    res_init2 = client.post("/api/init_from_manifest?force=true", json={"yaml": yaml.dump(data)})
-    assert res_init2.status_code == 200
+    init_study_from_manifest_dict(data, force=True)
     
     # Check that previous TrialResult rows are completely cleaned up and only fresh config remains
     with get_db_session() as session:

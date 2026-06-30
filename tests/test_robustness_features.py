@@ -8,7 +8,7 @@ import sqlite3
 from fastapi.testclient import TestClient
 from optuna.trial import TrialState
 from src.db_manager import get_db_session, DATABASE_URL
-from src.schema import TrialResult, SystemConfiguration, StudyReview
+from src.schema import TrialResult, SystemConfiguration
 import hpo_cli
 
 def test_zero_metric_rejection(client, initialized_study):
@@ -100,20 +100,6 @@ def test_cli_export_import_roundtrip(client, initialized_study):
     })
     assert resp.status_code == 200
     
-    # Add a study review
-    from src.hpo_coordinator import save_study_review
-    save_study_review(
-        study_name=initialized_study,
-        summary="Test study review summary",
-        health_rating=4,
-        policy_action="no_change",
-        model_version="test_version",
-        reasons=[],
-        trials_evaluated=1,
-        estimated_score_improvement=0.05,
-        cited_best_trial=0
-    )
-    
     # 2. Export the study to a temporary file
     temp_dir = tempfile.mkdtemp()
     export_path = os.path.join(temp_dir, "export.json")
@@ -134,7 +120,6 @@ def test_cli_export_import_roundtrip(client, initialized_study):
         assert data["study_name"] == initialized_study
         assert len(data["trials"]) == 1
         assert len(data["trial_results"]) == 1
-        assert len(data["study_reviews"]) == 1
         
     # 3. Import the study under a new name
     imported_study_name = f"{initialized_study}_imported"
@@ -184,7 +169,6 @@ def test_cli_backup_command():
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
     tables = [t[0] for t in cursor.fetchall()]
     assert "trial_results" in tables
-    assert "study_reviews" in tables
     conn.close()
     
     try:
@@ -267,7 +251,7 @@ def test_transient_health_warning_clears(client, initialized_study):
     resp = client.get(f"/api/study_details?study_name={initialized_study}")
     assert resp.status_code == 200
     details = resp.json()
-    assert details["review"]["health_tier"] == "watch"
+    assert details["health"]["tier"] == "watch"
     
     # Complete a healthy trial
     resp = client.post("/api/suggest_trial", json={"study_name": initialized_study, "worker_id": "health_worker"})
@@ -305,7 +289,7 @@ def test_transient_health_warning_clears(client, initialized_study):
     resp = client.get(f"/api/study_details?study_name={initialized_study}")
     assert resp.status_code == 200
     details = resp.json()
-    assert details["review"]["health_tier"] == "healthy"
+    assert details["health"]["tier"] == "healthy"
 
 
 def test_unbounded_metric_study_skips_validation(client, initialized_study):
@@ -332,7 +316,7 @@ def test_unbounded_metric_study_skips_validation(client, initialized_study):
     resp = client.get(f"/api/study_details?study_name={initialized_study}")
     assert resp.status_code == 200
     details = resp.json()
-    assert details["review"]["health_tier"] == "healthy"
+    assert details["health"]["tier"] == "healthy"
 
 
 def test_complete_partial_metrics(client, initialized_study):

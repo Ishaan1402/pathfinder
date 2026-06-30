@@ -60,7 +60,7 @@ def unique_study_name():
 @pytest.fixture
 def initialized_study(unique_study_name):
     """Initialize a study (Optuna + config in DB) and return its name."""
-    from hpo_mcp_server import initialize_study
+    from src.onboarding import initialize_study
 
     active_search_space = {
         "learning_rate": {"min": 1e-5, "max": 1e-2, "type": "float_log"},
