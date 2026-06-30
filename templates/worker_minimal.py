@@ -1,15 +1,13 @@
 """Minimal HPO worker template.
 
-Copy this next to your training code, fill in `train_one_epoch`, and run it on your GPU box
-(Colab, a server, anywhere). It talks to the broker only through `hpo_client` -- no need to
-fork the 600-line bridge-crack `colab_worker.py`.
+Copy this next to your training code, fill in ``train_one_epoch``, and run it on your GPU box
+(Colab, a server, anywhere). It talks to the broker only through ``hpo_client``.
 
 Setup:
-    export HPO_BROKER_URL="https://hpo.mycustomdomain.com"  # Or your Cloudflare/ngrok/Tailscale URL
+    export HPO_BROKER_URL="https://hpo.mycustomdomain.com"
     export HPO_STUDY_NAME="my_study"
     python worker_minimal.py
 """
-import sys
 from src.hpo_client import TrialSession
 
 NUM_EPOCHS = 15
@@ -19,7 +17,7 @@ def train_one_epoch(params: dict, epoch: int) -> tuple[float, float]:
     """Run one epoch with the given hyperparameters and return (score, loss).
 
     Replace this body with your real training/validation step. `params` contains the
-    hyperparameters the broker suggested (keys match your active_search_space.json).
+    hyperparameters the broker suggested (keys match the search space defined in your manifest).
 
     NOTE: The return value should be a tuple of (higher_is_better_score, lower_is_better_loss).
     The parameter names 'score' and 'loss' inside report_epoch are generalized:
@@ -74,7 +72,8 @@ def main():
                 last_epoch, score=score, loss=loss, state="FAIL",
                 gpu_model=gpu_model, max_vram_gb=max_vram_gb, oom_triggered=True
             )
-            sys.exit(1)
+            print("Trial failed due to GPU OOM. Continuing to next trial.")
+            return
         else:
             # Re-raise standard training exceptions
             raise exc

@@ -8,18 +8,19 @@ from typing import Dict, Any, Optional
 
 from src.hpo_client import TrialSession
 
-def simulate_unet_training_epoch(
+def simulate_training_epoch(
     epoch: int,
     params: Dict[str, Any]
 ) -> tuple[float, float]:
     """
-    Simulates a U-Net training epoch on crack segmentation.
+    Simulates a training epoch on a segmentation model.
     Defines a continuous non-linear optimization landscape:
     - Optimal learning rate: log10(lr) = -3 (1e-3)
     - Optimal BCE weight ratio: 0.3
-    - Resolution 1024 captures fine details better (higher Dice), but takes longer
+    - Resolution 1024 captures fine details better (higher Score), but takes longer
     - model_capacity 'wide' performs best
     """
+    # This simulates a BCE/Dice optimization landscape with a known optimum at lr≈1e-3, resolution=1024
     # 1. LR performance (quadratic curve in log space)
     log_lr = np.log10(params["learning_rate"])
     lr_perf = -1.5 * (log_lr - (-3.0))**2  # Peak at -3.0 (1e-3)
@@ -44,21 +45,21 @@ def simulate_unet_training_epoch(
     loss_perf = -0.4 * (params["loss_weight_ratio"] - 0.3)**2
 
     # Assemble base Dice score ceiling (maximum is ~0.92)
-    base_dice = 0.70 + lr_perf + res_perf + enc_perf + loss_perf
-    base_dice = max(0.15, min(0.92, base_dice))
+    base_score = 0.70 + lr_perf + res_perf + enc_perf + loss_perf
+    base_score = max(0.15, min(0.92, base_score))
 
     # Learning curve: approaches the ceiling asymptotically over epochs (max 10)
     progress = 1.0 - np.exp(-0.35 * epoch)
-    current_dice = base_dice * progress
+    current_score = base_score * progress
 
     # Add stochastic noise to simulate realistic batch training variances
     noise = np.random.normal(0, 0.008)
-    current_dice = float(max(0.01, min(0.95, current_dice + noise)))
+    current_score = float(max(0.01, min(0.95, current_score + noise)))
 
     # BCE Loss correlates inversely with Dice Score
-    current_bce = float(max(0.02, 2.5 * (1.0 - current_dice) + np.random.normal(0, 0.015)))
+    current_loss = float(max(0.02, 2.5 * (1.0 - current_score) + np.random.normal(0, 0.015)))
 
-    return current_dice, current_bce
+    return current_score, current_loss
 
 
 def run_training_worker(
@@ -125,28 +126,28 @@ def run_training_worker(
 
         # Initialize tracking metrics
         val_history = []
-        final_dice = 0.0
-        final_bce = 999.0
+        final_score = 0.0
+        final_loss = 999.0
         pruned = False
         
         # 2. Run Epoch training loop
         for epoch in range(1, epochs_per_trial + 1):
             # Simulate training/val forward pass
-            dice, bce = simulate_unet_training_epoch(epoch, params)
-            val_history.append({"epoch": epoch, "dice": dice, "bce": bce})
+            score, loss = simulate_training_epoch(epoch, params)
+            val_history.append({"epoch": epoch, "score": score, "loss": loss})
             
-            print(f"  Epoch {epoch:02d}/{epochs_per_trial:02d} | Dice: {dice:.4f} | BCE: {bce:.4f}")
+            print(f"  Epoch {epoch:02d}/{epochs_per_trial:02d} | Score: {score:.4f} | Loss: {loss:.4f}")
             
             # Record final metrics
-            final_dice = dice
-            final_bce = bce
+            final_score = score
+            final_loss = loss
             
             # 3. Intermediate epoch reporting & pruning evaluation
             try:
                 should_prune = session.report_epoch(
                     epoch=epoch,
-                    score=dice,
-                    loss=bce
+                    score=score,
+                    loss=loss
                 )
             except Exception as rep_err:
                 print(f"Error reporting epoch: {rep_err}")
@@ -159,8 +160,8 @@ def run_training_worker(
                 try:
                     session.complete(
                         epoch=epoch,
-                        score=dice,
-                        loss=bce,
+                        score=score,
+                        loss=loss,
                         state="PRUNED"
                     )
                 except Exception as prune_err:
@@ -176,8 +177,8 @@ def run_training_worker(
             try:
                 comp_result = session.complete(
                     epoch=epochs_per_trial,
-                    score=final_dice,
-                    loss=final_bce,
+                    score=final_score,
+                    loss=final_loss,
                     weights_path=weights_path,
                     history=val_history,
                     state="COMPLETE"
