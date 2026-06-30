@@ -1,6 +1,7 @@
 
 import contextlib
 import logging
+import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from .schema import Base
@@ -28,10 +29,17 @@ if DATABASE_URL.startswith("sqlite"):
         cursor.execute("PRAGMA synchronous=NORMAL")
         cursor.execute("PRAGMA busy_timeout=30000")
         cursor.close()
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+SessionLocal = sessionmaker(bind=engine)
 
 def init_db():
     """Initializes the database, creates tables, and runs additive migrations."""
+    # Ensure parent directory exists for the default SQLite path (.data/)
+    if DATABASE_URL.startswith("sqlite:///"):
+        db_path = DATABASE_URL.replace("sqlite:///", "")
+        db_dir = os.path.dirname(db_path)
+        if db_dir and not os.path.isdir(db_dir):
+            os.makedirs(db_dir, exist_ok=True)
+
     from sqlalchemy import inspect
 
     try:
@@ -74,27 +82,11 @@ _ADDITIVE_COLUMNS = {
         "health_tier": "VARCHAR(50)",
         "health_reason": "TEXT",
     },
-    "study_reviews": {
-        "estimated_score_improvement": "FLOAT",
-        "cited_best_trial": "INTEGER",
-        "confidence": "VARCHAR(50) DEFAULT 'high'",
-        "baseline_best_score": "FLOAT",
-        "applied_at_completed_count": "INTEGER",
-        "applied_at": "DATETIME",
-        "actual_score_improvement": "FLOAT",
-        "outcome_measured_at": "DATETIME",
-        "outcome_status": "VARCHAR(30) DEFAULT 'pending'",
-        "quality_flagged": "BOOLEAN DEFAULT 0",
-    },
-    "agent_reasoning_logs": {
-        "estimated_score_improvement": "FLOAT",
-        "actual_score_improvement": "FLOAT",
-    },
+
     "study_status": {
         "health_tier": "VARCHAR(50) DEFAULT 'healthy'",
         "health_reason": "TEXT",
         "health_updated_at": "DATETIME",
-        "nudge_dismissed_trials": "INTEGER",
     }
 }
 
@@ -119,43 +111,11 @@ def _apply_additive_migrations():
             if col_name in present:
                 continue
             try:
-                # Check for old column name to copy data
-                old_name = None
-                if col_name == "estimated_score_improvement" and "estimated_dice_improvement" in present:
-                    old_name = "estimated_dice_improvement"
-                elif col_name == "actual_score_improvement" and "actual_dice_improvement" in present:
-                    old_name = "actual_dice_improvement"
-
                 with engine.begin() as conn:
                     conn.execute(text(f'ALTER TABLE {table} ADD COLUMN {col_name} {col_type}'))
-                    if old_name:
-                        conn.execute(text(f'UPDATE {table} SET {col_name} = {old_name}'))
             except Exception as e:
                 # Best-effort: a concurrent process may have added it already.
                 print(f"Error migrating column {col_name} in {table}: {e}")
-
-    # Drop obsolete columns after confirming new columns are present and data is copied
-    for table, col_map in [
-        ("agent_reasoning_logs", {"estimated_dice_improvement": "estimated_score_improvement", "actual_dice_improvement": "actual_score_improvement"}),
-        ("study_reviews", {"estimated_dice_improvement": "estimated_score_improvement", "actual_dice_improvement": "actual_score_improvement"}),
-    ]:
-        if table in existing_tables:
-            try:
-                present = {c["name"] for c in inspector.get_columns(table)}
-            except Exception:
-                continue
-            for old_col, new_col in col_map.items():
-                if old_col in present:
-                    try:
-                        with engine.begin() as conn:
-                            # If new column exists, migrate remaining NULL values if any
-                            if new_col in present:
-                                conn.execute(text(f"UPDATE {table} SET {new_col} = {old_col} WHERE {new_col} IS NULL"))
-                            # Drop the obsolete column
-                            conn.execute(text(f"ALTER TABLE {table} DROP COLUMN {old_col}"))
-                            print(f"Migration: Dropped obsolete column '{old_col}' from table '{table}'")
-                    except Exception as drop_err:
-                        print(f"Migration: Error dropping obsolete column '{old_col}' from table '{table}': {drop_err}")
 
 
 def _migrate_segmentation_metrics_to_trial_results():
@@ -212,7 +172,7 @@ def _migrate_segmentation_metrics_to_trial_results():
                     SELECT :study_name, {select_clause} FROM segmentation_metrics
                 """
                 conn.execute(text(stmt), {"study_name": study_name})
-                print(f"Successfully migrated data from segmentation_metrics to trial_results.")
+                print("Successfully migrated data from segmentation_metrics to trial_results.")
     except Exception as e:
         print(f"Error migrating segmentation_metrics data to trial_results: {e}")
 
