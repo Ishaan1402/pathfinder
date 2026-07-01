@@ -4,7 +4,7 @@ Concurrency integration test for the TrialLease system.
 Verifies that multiple concurrent workers each receive unique leased trials,
 and that no trial duplication occurs across simultaneous suggest requests.
 """
-
+# ruff: noqa: E402
 import os
 import sys
 
@@ -31,12 +31,10 @@ import unittest
 import threading
 import uuid
 import optuna
-import json
 from datetime import datetime, timedelta
-from optuna.trial import TrialState
 
 from src.db_manager import init_db, get_db_session
-from src.schema import TrialLease, SystemConfiguration
+from src.schema import TrialLease
 
 
 class TestConcurrencyLeases(unittest.TestCase):
@@ -79,7 +77,7 @@ class TestConcurrencyLeases(unittest.TestCase):
                         trial_id=trial_id,
                         study_name=study_name,
                         leased_to=worker_id,
-                        lease_expires_at=datetime.utcnow() + timedelta(seconds=LEASE_TTL)
+                        lease_expires_at=datetime.now() + timedelta(seconds=LEASE_TTL)
                     )
                     session.add(lease)
                     session.commit()
@@ -132,7 +130,7 @@ class TestConcurrencyLeases(unittest.TestCase):
                 trial_id=trial_a._trial_id,
                 study_name=study_name,
                 leased_to="worker-A",
-                lease_expires_at=datetime.utcnow() - timedelta(seconds=10)
+                lease_expires_at=datetime.now() - timedelta(seconds=10)
             )
             session.add(lease)
             session.commit()
@@ -145,7 +143,7 @@ class TestConcurrencyLeases(unittest.TestCase):
 
             if trial_b._trial_id == trial_a._trial_id:
                 # Same trial recycled — only one lease row should exist
-                matching = [l for l in all_leases if l.trial_id == trial_a._trial_id]
+                matching = [lease for lease in all_leases if lease.trial_id == trial_a._trial_id]
                 self.assertEqual(
                     len(matching), 1,
                     "Recycled trial should have exactly one lease row"
@@ -162,7 +160,7 @@ class TestConcurrencyLeases(unittest.TestCase):
         LEASE_TTL = 300
 
         # Create a lease about to expire (30 seconds remaining)
-        initial_expiry = datetime.utcnow() + timedelta(seconds=30)
+        initial_expiry = datetime.now() + timedelta(seconds=30)
         with get_db_session() as session:
             lease = TrialLease(
                 trial_id=trial._trial_id,
@@ -181,7 +179,7 @@ class TestConcurrencyLeases(unittest.TestCase):
                 leased_to=worker_id
             ).first()
             self.assertIsNotNone(lease, "Lease should exist before heartbeat")
-            lease.lease_expires_at = datetime.utcnow() + timedelta(seconds=LEASE_TTL)
+            lease.lease_expires_at = datetime.now() + timedelta(seconds=LEASE_TTL)
             session.commit()
 
         # Verify lease was extended
@@ -203,7 +201,7 @@ class TestConcurrencyLeases(unittest.TestCase):
         intruder_id = f"worker-intruder-{uuid.uuid4()}"
         trial = study.ask()
 
-        initial_expiry = datetime.utcnow() + timedelta(seconds=60)
+        initial_expiry = datetime.now() + timedelta(seconds=60)
         with get_db_session() as session:
             lease = TrialLease(
                 trial_id=trial._trial_id,

@@ -59,13 +59,13 @@ def _epoch_composite_score(study, trial, epoch: int, ev: Dict[str, Any]) -> Opti
                 if entry.get("epoch") == epoch:
                     if use_fixed and entry.get("score_eval_fixed") is not None:
                         s = entry.get("score_eval_fixed")
-                        l = entry.get("loss_eval_fixed", entry.get("loss", 0.0))
+                        loss_val = entry.get("loss_eval_fixed", entry.get("loss", 0.0))
                     else:
                         s = entry.get("score")
-                        l = entry.get("loss")
-                    if s is not None and l is not None:
+                        loss_val = entry.get("loss")
+                    if s is not None and loss_val is not None:
                         scores.append(float(s))
-                        losses.append(float(l))
+                        losses.append(float(loss_val))
                     break
 
     # 3. Z-score normalize if we have enough history (>= 10 values)

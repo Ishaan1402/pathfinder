@@ -2,16 +2,13 @@
 
 import os
 import sys
-import json
 import yaml
 import pytest
 import subprocess
 from src.manifest import (
     validate_manifest,
     _manifest_params_to_search_space,
-    _manifest_to_hpo_config,
-    ParamType,
-    ObjectiveDirection
+    _manifest_to_hpo_config
 )
 from src.db_manager import get_db_session
 from src.schema import SystemConfiguration
@@ -357,8 +354,6 @@ def test_api_endpoints(base_manifest_data):
 def test_manifest_metric_ordering(client, base_manifest_data):
     import optuna
     from src.onboarding import init_study_from_manifest_dict
-    from src.db_manager import get_db_session
-    from src.schema import TrialResult
     
     # 1. Order [maximize, minimize] -> (Dice, Loss)
     study_name_1 = "test_order_max_min"
@@ -465,8 +460,7 @@ def test_single_objective_minimize(client, base_manifest_data):
 
 def test_deep_cleanup_on_force_overwrite(client, base_manifest_data):
     from src.onboarding import init_study_from_manifest_dict
-    from src.db_manager import get_db_session
-    from src.schema import SystemConfiguration, TrialResult
+    from src.schema import TrialResult
     
     study_name = "test_deep_cleanup_study"
     data = base_manifest_data.copy()

@@ -2,13 +2,9 @@ import os
 import tempfile
 import json
 import pytest
-import uuid
-import math
 import sqlite3
-from fastapi.testclient import TestClient
-from optuna.trial import TrialState
-from src.db_manager import get_db_session, DATABASE_URL
-from src.schema import TrialResult, SystemConfiguration
+from src.db_manager import get_db_session
+from src.schema import TrialResult
 import hpo_cli
 
 def test_zero_metric_rejection(client, initialized_study):

@@ -3,12 +3,13 @@ import json
 import logging
 from typing import Optional, Dict, Any, List
 
-logger = logging.getLogger(__name__)
 from fastapi import HTTPException
 from optuna.trial import TrialState
 
 from src.db_manager import get_db_session
 from src.schema import SystemConfiguration, CompactedPacket
+
+logger = logging.getLogger(__name__)
 
 # Default search space definition
 DEFAULT_SEARCH_SPACE = {

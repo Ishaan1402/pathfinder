@@ -4,9 +4,9 @@ import optuna
 from typing import Dict, Any, List, Optional
 
 from src.db_manager import get_db_session, DATABASE_URL
+from src.schema import SystemConfiguration, StudyStatus
 
 logger = logging.getLogger(__name__)
-from src.schema import SystemConfiguration, StudyStatus
 
 def initialize_study(
     study_name: str,

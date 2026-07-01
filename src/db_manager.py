@@ -2,17 +2,14 @@
 import contextlib
 import logging
 import os
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker, Session
 from .schema import Base
-
 from .settings import settings
 
 logger = logging.getLogger(__name__)
 
 DATABASE_URL = settings.database_url
-
-from sqlalchemy import event
 
 connect_args = {}
 if DATABASE_URL.startswith("sqlite"):

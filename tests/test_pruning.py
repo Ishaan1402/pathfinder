@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 import os
 import sys
 
@@ -22,7 +23,6 @@ if "HPO_DATABASE_URL" not in os.environ:
 
 import unittest
 import optuna
-from optuna.trial import TrialState
 
 from src.db_manager import init_db
 from src.pruning import _epoch_composite_score

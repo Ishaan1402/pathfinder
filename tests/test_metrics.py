@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 import os
 import sys
 import unittest
@@ -58,7 +59,6 @@ class TestMetrics(unittest.TestCase):
 
     def test_get_best_trial_and_score(self):
         study = optuna.create_study(directions=["minimize", "maximize"])
-        t0 = _complete_trial(study, [0.5, 0.6])
         t1 = _complete_trial(study, [0.3, 0.9])
         completed = [t for t in study.trials if t.state == TrialState.COMPLETE]
         best = get_best_trial(completed, study)

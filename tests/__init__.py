@@ -1,4 +1,5 @@
 # Test package init — sets up shared test database and sys.path
+# ruff: noqa: E402
 import os
 import sys
 import tempfile

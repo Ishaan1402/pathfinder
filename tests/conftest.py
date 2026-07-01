@@ -4,6 +4,7 @@ This consolidates the per-module boilerplate that used to be copy-pasted at the 
 every test file: it points HPO_DATABASE_URL at a throwaway SQLite file BEFORE any
 ``src.*`` import binds the SQLAlchemy engine, and exposes reusable fixtures.
 """
+# ruff: noqa: E402
 import os
 import sys
 import tempfile

@@ -397,14 +397,20 @@ class TrialSession:
 
         # Auto-detect defaults
         env = dict(self.detected_env) if hasattr(self, "detected_env") else {}
-        # Override with explicit values if passed
-        if git_commit is not None: env["git_commit"] = git_commit
-        if python_version is not None: env["python_version"] = python_version
-        if cuda_version is not None: env["cuda_version"] = cuda_version
-        if pip_freeze is not None: env["pip_freeze"] = pip_freeze
-        if dataset_version is not None: env["dataset_version"] = dataset_version
-        if hostname is not None: env["hostname"] = hostname
-        if platform is not None: env["platform"] = platform
+        if git_commit is not None:
+            env["git_commit"] = git_commit
+        if python_version is not None:
+            env["python_version"] = python_version
+        if cuda_version is not None:
+            env["cuda_version"] = cuda_version
+        if pip_freeze is not None:
+            env["pip_freeze"] = pip_freeze
+        if dataset_version is not None:
+            env["dataset_version"] = dataset_version
+        if hostname is not None:
+            env["hostname"] = hostname
+        if platform is not None:
+            env["platform"] = platform
         
         # Merge into payload
         for k, v in env.items():
