@@ -212,7 +212,6 @@ function renderStudyDetails(data) {
 
     if (data.hpo_config) applyAnalysisTableHeaders();
     applyEvalInsightsUi();
-    applyReviewUi();
 
     // Find all parameters defined in trials or search space dynamically
     let paramKeys = [];

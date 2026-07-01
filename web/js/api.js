@@ -42,11 +42,7 @@ async function fetchStudyDetails(throwOnError = false) {
         const data = await res.json();
         window.HPOState.data.latestStudyData = data;
 
-        const completedCount = data.trials.filter(t => t.state === "COMPLETE" || t.state === "FAIL" || t.state === "PRUNED").length;
-        if (window.HPOState.telemetry.lastCompletedCount !== null && completedCount !== window.HPOState.telemetry.lastCompletedCount) {
-            window.HPOState.ui.reviewPillDismissed = false;
-        }
-        window.HPOState.telemetry.lastCompletedCount = completedCount;
+        window.HPOState.telemetry.lastCompletedCount = data.trials.filter(t => t.state === "COMPLETE" || t.state === "FAIL" || t.state === "PRUNED").length;
 
         const select = document.getElementById("study-select");
         if (select) select.value = data.study_name;
@@ -58,8 +54,6 @@ async function fetchStudyDetails(throwOnError = false) {
         window.HPOState.data.review = data.review || null;
         const nComplete = data.completed_count ?? data.trials.filter((t) => t.state === "COMPLETE").length;
         updateStatConfidenceBanner(data.statistical_confidence || "low", nComplete);
-        renderPastReviews(data.past_reviews || []);
-        applyReviewUi();
         updateAnalysisStatusTicker();
 
         syncTelemetryFromTrials([...data.trials].sort((a, b) => b.number - a.number));
@@ -96,7 +90,6 @@ async function fetchSearchSpace() {
         window.HPOState.data.activeSearchSpace = await res.json();
         renderSearchSpace();
         renderDashboardSearchSpaceSummary();
-        fetchPendingChanges();
         if (window.HPOState.data.latestStudyData) {
             renderStudyDetails(window.HPOState.data.latestStudyData);
         }
