@@ -1,5 +1,3 @@
-import pytest
-from optuna.trial import TrialState
 from src.analytics import build_study_packet
 
 
@@ -48,3 +46,10 @@ def test_vram_telemetry_flows_to_study_packet(client, initialized_study):
     assert vram.get("oom_count", -1) >= 0, (
         f"Expected oom_count >= 0, got {vram.get('oom_count')}"
     )
+
+    # Regression model fields removed — simplify verified
+    assert "vram_model" not in vram, "vram_model should not be in simplified telemetry"
+    assert "bounds_oom_risk" not in vram, "bounds_oom_risk should not be in simplified telemetry"
+
+    # Flat OOM trials list present (empty for non-OOM trial)
+    assert isinstance(vram.get("oom_trials"), list), "oom_trials should be a list"

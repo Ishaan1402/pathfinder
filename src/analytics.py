@@ -59,8 +59,8 @@ def bin_trials(study, db_metrics: Dict[int, Any], search_space: Dict[str, Any]) 
         if t.state == TrialState.COMPLETE:
             s = get_score(t, study)
             score = s if s is not None else 0.0
-            l = get_loss(t, study)
-            loss = l if l is not None else 0.0
+            loss_val = get_loss(t, study)
+            loss = loss_val if loss_val is not None else 0.0
 
             metric = db_metrics.get(t._trial_id, {})
             score = metric.get("primary_score") if metric.get("primary_score") is not None else score
@@ -334,59 +334,12 @@ def compute_fidelity_durations(study, config: Dict[str, Any]) -> Dict[str, Any]:
 
 # --- VRAM telemetry ---
 
-def fit_vram_model(trials: List, db_metrics: Dict[int, Any], train_param: str) -> Optional[Dict[str, Any]]:
-    points: List[tuple] = []
-    for t in trials:
-        if t.state != TrialState.COMPLETE:
-            continue
-        metric = db_metrics.get(t._trial_id, {})
-        oom = metric.get("oom_triggered") or t.user_attrs.get("oom_triggered", False)
-        if oom:
-            continue
-        vram = metric.get("max_vram_gb") or t.user_attrs.get("max_vram_gb")
-        if vram is None:
-            continue
-        bs = t.params.get("batch_size")
-        res = t.params.get(train_param)
-        if bs is not None and res is not None:
-            try:
-                points.append((float(bs), float(res), float(vram)))
-            except (ValueError, TypeError):
-                continue
-
-    if len(points) < 6:
-        return None
-
-    X = [p[0] * (p[1] ** 2) for p in points]
-    Y = [p[2] for p in points]
-    if len(set(X)) < 2:
-        return None
-
-    n = len(points)
-    sum_x = sum(X)
-    sum_y = sum(Y)
-    sum_xx = sum(x * x for x in X)
-    sum_xy = sum(X[i] * Y[i] for i in range(n))
-    denom = n * sum_xx - sum_x * sum_x
-    if abs(denom) < 1e-12:
-        return None
-
-    slope = (n * sum_xy - sum_x * sum_y) / denom
-    intercept = (sum_y - slope * sum_x) / n
-    ssr = sum((Y[i] - (slope * X[i] + intercept)) ** 2 for i in range(n))
-    rse = (ssr / (n - 2)) ** 0.5 if n > 2 else 0.0
-    return {"slope": slope, "intercept": intercept, "n_points": n, "rse": rse}
-
-
-def compute_vram_telemetry(study, db_metrics: Dict[int, Any], search_space: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any]:
-    ev = config.get("eval_protocol", {})
-    train_param = ev.get("train_resolution_param", "resolution")
+def compute_vram_telemetry(study, db_metrics: Dict[int, Any]) -> Dict[str, Any]:
     trials = list(study.trials)
-    model = fit_vram_model(trials, db_metrics, train_param)
-
     gpu_capacity_gb = 0.0
     gpu_models: List[str] = []
     oom_count = 0
+    oom_trials: List[Dict[str, Any]] = []
 
     for t in trials:
         metric = db_metrics.get(t._trial_id, {})
@@ -399,50 +352,19 @@ def compute_vram_telemetry(study, db_metrics: Dict[int, Any], search_space: Dict
             gpu_models.append(gpu)
         if oom:
             oom_count += 1
+            oom_trials.append({
+                "trial_id": t.number,
+                "params": dict(t.params),
+                "peak_vram_gb": float(vram) if vram else 0.0,
+            })
 
     gpu_model = max(set(gpu_models), key=gpu_models.count) if gpu_models else "Unknown"
-    oom_risk = None
-
-    if model and gpu_capacity_gb > 0:
-        max_bs = None
-        bs_info = search_space.get("batch_size", {})
-        if bs_info.get("type") == "categorical":
-            active_bs = bs_info.get("active", [])
-            if active_bs:
-                max_bs = max(active_bs)
-        else:
-            max_bs = bs_info.get("max")
-
-        max_res = None
-        res_info = search_space.get(train_param, {})
-        if res_info.get("type") == "categorical":
-            active_res = res_info.get("active", [])
-            if active_res:
-                max_res = max(active_res)
-        else:
-            max_res = res_info.get("max")
-
-        if max_bs is not None and max_res is not None:
-            predicted_mean_vram = model["slope"] * (float(max_bs) * (float(max_res) ** 2)) + model["intercept"]
-            margin = max(1.0, 1.96 * model["rse"])
-            predicted_max_vram = predicted_mean_vram + margin
-            if predicted_max_vram > 0.9 * gpu_capacity_gb:
-                oom_risk = {
-                    "max_batch_size": max_bs,
-                    "max_resolution": max_res,
-                    "predicted_mean_vram_gb": predicted_mean_vram,
-                    "margin_gb": margin,
-                    "predicted_max_vram_gb": predicted_max_vram,
-                    "gpu_capacity_gb": gpu_capacity_gb,
-                    "risk_level": "high" if predicted_max_vram > gpu_capacity_gb else "medium",
-                }
 
     return {
         "gpu_model": gpu_model,
         "gpu_capacity_gb": gpu_capacity_gb,
         "oom_count": oom_count,
-        "vram_model": model,
-        "bounds_oom_risk": oom_risk,
+        "oom_trials": oom_trials,
     }
 
 
@@ -598,7 +520,7 @@ def build_compacted_packet(
     pareto_numbers = pareto_trial_numbers_deploy_aware(study, config) if len(study.directions) > 1 else []
     boundary_hits = check_boundary_hits(study, pareto_numbers, search_space)
     fidelity_durations = compute_fidelity_durations(study, config)
-    vram_telemetry = compute_vram_telemetry(study, db_metrics, search_space, config)
+    vram_telemetry = compute_vram_telemetry(study, db_metrics)
 
     return {
         "study_name": study_name,
