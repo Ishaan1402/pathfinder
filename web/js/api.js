@@ -25,6 +25,17 @@ async function populateStudyList() {
                     if (study === activeStudy) opt.selected = true;
                     select.appendChild(opt);
                 });
+                if (!activeStudy && studiesToShow.length > 0) {
+                    select.value = studiesToShow[0];
+                    window.HPOState.session.studyName = studiesToShow[0];
+                    const url = new URL(window.location);
+                    url.searchParams.set('study', studiesToShow[0]);
+                    window.history.pushState({}, '', url);
+                    window.fetchStudyDetails();
+                    window.fetchHpoConfig();
+                    window.fetchSearchSpace();
+                    window.fetchFanova();
+                }
             }
         }
     } catch (err) {
@@ -33,6 +44,7 @@ async function populateStudyList() {
 }
 
 async function fetchStudyDetails(throwOnError = false) {
+    if (!window.HPOState.session.studyName) return;
     try {
         const res = await fetch(`/api/study_details?study_name=${window.HPOState.session.studyName}`);
         if (!res.ok) {
@@ -70,6 +82,7 @@ async function fetchStudyDetails(throwOnError = false) {
 }
 
 async function fetchHpoConfig() {
+    if (!window.HPOState.session.studyName) return;
     const studyName = window.HPOState.session.studyName || '';
     try {
         const res = await fetch(`/api/hpo_config?study_name=${encodeURIComponent(studyName)}`);
@@ -83,6 +96,7 @@ async function fetchHpoConfig() {
 }
 
 async function fetchSearchSpace() {
+    if (!window.HPOState.session.studyName) return;
     const studyName = window.HPOState.session.studyName || '';
     try {
         const res = await fetch(`/api/search_space?study_name=${encodeURIComponent(studyName)}`);
@@ -99,6 +113,7 @@ async function fetchSearchSpace() {
 }
 
 async function fetchFanova() {
+    if (!window.HPOState.session.studyName) return;
     try {
         const res = await fetch(`/api/fanova?study_name=${window.HPOState.session.studyName}`);
         if (!res.ok) return;

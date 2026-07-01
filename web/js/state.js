@@ -2,7 +2,7 @@ window.HPOState = {
     session: {
         studyName: new URLSearchParams(window.location.search).get("study")
             || new URLSearchParams(window.location.search).get("study_name")
-            || "bridge_crack_study",
+            || null,
     },
     data: {
         trials: [],

@@ -32,6 +32,7 @@ function updateAnalysisStatusTicker() {
 }
 
 async function checkStudyHealth(throwOnError = false) {
+    if (!window.HPOState.session.studyName) return;
     try {
         const res = await fetch(`/api/study_health?study_name=${window.HPOState.session.studyName}`);
         if (!res.ok) { if (throwOnError) throw new Error("HTTP error " + res.status); return; }
