@@ -87,5 +87,4 @@ When a completed trial is reported or the background daemon polls health, the sy
 - Never block the GPU worker on an LLM; the suggest path stays TPE.
 - Never auto-invoke the coordinator from the broker, dashboard, or a hook - only on user request.
 - Do not write/modify local JSON files for search space or configuration (e.g. `active_search_space.json`, `hpo_config.json`); state must reside in SQLite.
-- Do not modify the root `colab_worker.py` unless the user owns the bridge-crack project. Cloners use `templates/`.
-- Never modify `archive/` files — they are historical reference only.
+- Cloners use `templates/`. Do not generate project-specific workers at the repo root.

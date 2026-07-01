@@ -3,8 +3,8 @@
 A human quickstart for wiring your own model to the broker. For the agent-driven version of
 this (have your IDE assistant do it), see [`AGENTS.md`](../AGENTS.md).
 
-The reference crack-seg implementation (`colab_worker.py`) lives in [`archive/`](../archive/). You
-do **not** need to fork it. Cloners start from `templates/worker_minimal.py` and the 3-call
+The reference crack-seg implementation is not included in this repository.
+You do **not** need to fork it. Cloners start from `templates/worker_minimal.py` and the 3-call
 client in `src/hpo_client.py`.
 
 ## 1. Install
@@ -145,12 +145,6 @@ That is the entire contract:
 > - Pass your higher-is-better metric (e.g. Accuracy, BLEU, F1, Reward) as `score`.
 > - Pass your lower-is-better metric (e.g. Cross-Entropy, Perplexity, MAE) as `loss`.
 > - You can customize their display names on the UI dashboard under **Settings > Eval protocol** by setting "Loss metric display name" and "Score metric display name".
-
-### Google Colab (reference only)
-
-The historical bridge-crack U-Net reference implementation is preserved in
-[`archive/colab_worker.py`](../archive/colab_worker.py). **Do not use it for new studies.**
-Cloners should use `templates/worker_minimal.py`.
 
 ## 5. Create the study and validate
 

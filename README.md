@@ -308,7 +308,7 @@ Building Pathfinder taught me the MCP architecture: how to expose structured too
 
 ## Reference: crack-seg
 
-Pathfinder was initially built to tune [crack-seg](https://github.com/Ishaan1402/crack-seg#crack-seg), a U-Net pixel-level segmentation model trained on UAV bridge imagery. The reference implementation (`colab_worker.py`) is preserved in [archive/](archive/). **Do not fork it** for new studies — use `templates/worker_minimal.py` instead.
+Pathfinder was initially built to tune [crack-seg](https://github.com/Ishaan1402/crack-seg#crack-seg), a U-Net pixel-level segmentation model trained on UAV bridge imagery. **Do not fork it** for new studies — start from `templates/worker_minimal.py`.
 
 ---
 
