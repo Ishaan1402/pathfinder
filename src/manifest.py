@@ -438,7 +438,7 @@ def _manifest_to_hpo_config(data: Dict[str, Any]) -> Dict[str, Any]:
         obj_label = obj.get("label", obj_name)
         if obj_name == primary_score:
             score_label = obj_label
-        elif "loss" in obj_name.lower() or "bce" in obj_name.lower():
+        elif "loss" in obj_name.lower():
             loss_label = obj_label
 
     eval_proto = data.get("eval_protocol", {})
