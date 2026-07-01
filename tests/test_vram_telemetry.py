@@ -3,7 +3,7 @@ from optuna.trial import TrialState
 from src.analytics import build_study_packet
 
 
-def test_vram_telemetry_flows_to_review_packet(client, initialized_study):
+def test_vram_telemetry_flows_to_study_packet(client, initialized_study):
     """
     Submits a trial with VRAM data and verifies the review packet contains
     populated VRAM telemetry rather than empty defaults.

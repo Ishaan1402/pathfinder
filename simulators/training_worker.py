@@ -33,7 +33,7 @@ def simulate_training_epoch(
         res_perf = 0.06
 
     # 3. Model capacity (wide vs narrow U-Net channel widths)
-    cap = params.get("model_capacity") or params.get("encoder_name", "narrow")
+    cap = params.get("model_capacity", "narrow")
     if cap in ("wide", "resnet50"):
         enc_perf = 0.04
     elif cap in ("narrow", "resnet34", "efficientnet-b0"):

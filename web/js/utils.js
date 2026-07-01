@@ -4,8 +4,7 @@ function paramLabel(key) {
 }
 
 function fanovaParamLabel(param) {
-    const legacy = { encoder_name: "model_capacity" };
-    return paramLabel(legacy[param] || param);
+    return paramLabel(param);
 }
 
 function formatTrainResolution(trial) {

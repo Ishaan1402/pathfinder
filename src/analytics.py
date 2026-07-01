@@ -185,11 +185,9 @@ def get_fanova_importances(study, config: Dict[str, Any]) -> Dict[str, float]:
     except Exception:
         return {}
 
-    aliases = config.get("legacy_param_aliases", {})
     display: Dict[str, float] = {}
     for param, value in importances.items():
-        canonical = aliases.get(param, param)
-        label = param_display_name(canonical, config)
+        label = param_display_name(param, config)
         display[label] = max(display.get(label, 0.0), float(value))
     return display
 

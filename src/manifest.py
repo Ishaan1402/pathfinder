@@ -456,7 +456,6 @@ def _manifest_to_hpo_config(data: Dict[str, Any]) -> Dict[str, Any]:
     max_epoch_jump = rules.get("max_epoch_jump")
 
     hpo_config = {
-        "config_version": 2,
         "metric_loss_label": loss_label,
         "metric_score_label": score_label,
         "eval_protocol": {

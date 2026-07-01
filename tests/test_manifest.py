@@ -263,35 +263,10 @@ def test_mappings(base_manifest_data):
     assert space["num_epochs"]["options"] == [15]
 
     config = _manifest_to_hpo_config(base_manifest_data)
-    assert config["config_version"] == 2
     assert config["metric_score_label"] == "Score"
     assert config["metric_loss_label"] == "BCE Loss"
     assert config["eval_protocol"]["enabled"] is True
     assert config["eval_protocol"]["fixed_resolution"] == 512
-
-def test_hpo_config_versioning():
-    from src.hpo_config import load_hpo_config, save_hpo_config
-    # Test fallback / default config yields version 2
-    cfg_new = load_hpo_config("nonexistent_test_study_v2")
-    assert cfg_new["config_version"] == 2
-    assert cfg_new["metric_score_label"] == "Score"
-    assert "legacy_param_aliases" not in cfg_new
-
-    # Save a version 1 legacy configuration and verify it merges with legacy defaults
-    legacy_cfg = {
-        "config_version": 1,
-        "metric_score_label": "Dice",
-        "eval_protocol": {
-            "enabled": True,
-            "fixed_resolution": 256
-        }
-    }
-    save_hpo_config(legacy_cfg, "legacy_test_study_v1")
-    cfg_legacy = load_hpo_config("legacy_test_study_v1")
-    assert cfg_legacy.get("config_version", 1) == 1
-    assert cfg_legacy["metric_score_label"] == "Dice"
-    assert cfg_legacy["metric_loss_label"] == "BCE"
-    assert cfg_legacy["legacy_param_aliases"] == {"encoder_name": "model_capacity"}
 
 def test_cli_validate_success(tmp_path, base_manifest_data):
     yaml_file = tmp_path / "manifest.yaml"

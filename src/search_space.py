@@ -9,25 +9,12 @@ from optuna.trial import TrialState
 
 from src.db_manager import get_db_session
 from src.schema import SystemConfiguration, CompactedPacket
-from src.hpo_config import load_hpo_config
 
 # Default search space definition
 DEFAULT_SEARCH_SPACE = {
     "learning_rate": {"min": 1e-5, "max": 1e-2, "type": "float_log"},
     "batch_size": {"options": [16, 32, 64, 128], "active": [16, 32, 64, 128], "type": "categorical"},
 }
-
-
-def _migrate_search_space(space: Dict[str, Any], study_name: Optional[str] = None) -> Dict[str, Any]:
-    """Rename legacy encoder_name → model_capacity for older studies/files."""
-    config = load_hpo_config(study_name)
-    if "encoder_name" in space and "model_capacity" not in space:
-        enc = space.pop("encoder_name")
-        mapping = config.get("legacy_capacity_values", {})
-        enc["active"] = [mapping.get(v, v) for v in enc.get("active", enc.get("options", []))]
-        enc["options"] = [mapping.get(v, v) for v in enc.get("options", enc.get("active", []))]
-        space["model_capacity"] = enc
-    return space
 
 
 def load_search_space(study_name: Optional[str] = None) -> Dict[str, Any]:
@@ -44,7 +31,7 @@ def load_search_space(study_name: Optional[str] = None) -> Dict[str, Any]:
             ).first()
             if row:
                 space = json.loads(row.config_value)
-                return _migrate_search_space(space, study_name)
+                return space
     except Exception as e:
         print(f"Error loading search space from DB: {e}")
 
