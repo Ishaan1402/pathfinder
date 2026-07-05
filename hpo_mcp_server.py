@@ -1,4 +1,4 @@
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any
 from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP("Pathfinder")
