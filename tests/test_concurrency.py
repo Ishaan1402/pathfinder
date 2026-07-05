@@ -32,6 +32,7 @@ import threading
 import uuid
 import optuna
 from datetime import datetime, timedelta
+from optuna.trial import TrialState
 
 from src.db_manager import init_db, get_db_session
 from src.schema import TrialLease
@@ -228,6 +229,56 @@ class TestConcurrencyLeases(unittest.TestCase):
             ).first()
             self.assertIsNotNone(lease)
             self.assertEqual(lease.leased_to, owner_id)
+
+    def test_enqueue_trial_overrides_tpe_categorical(self):
+        """enqueue_trial with partial params overrides suggest_categorical for that param."""
+        study, study_name = self._make_study()
+
+        # Seed first trial to lock the categorical distribution in Optuna
+        trial0 = study.ask()
+        trial0.suggest_categorical("resolution", [256, 512, 1024])
+        trial0.suggest_float("lr", 1e-4, 1e-2, log=True)
+        study.tell(trial0.number, state=TrialState.COMPLETE, values=[0.5, 0.5])
+
+        # Enqueue a trial with resolution=256 (partial fix)
+        study.enqueue_trial({"resolution": 256})
+
+        # The enqueued trial should return 256 for resolution, TPE-sampled for lr
+        trial1 = study.ask()
+        res = trial1.suggest_categorical("resolution", [256, 512, 1024])
+        self.assertEqual(res, 256,
+                         "Enqueued categorical value should override TPE sampling")
+
+        lr = trial1.suggest_float("lr", 1e-4, 1e-2, log=True)
+        self.assertGreaterEqual(lr, 1e-4)
+        self.assertLessEqual(lr, 1e-2)
+
+    def test_multiple_enqueued_trials_consumed_in_order(self):
+        """Multiple enqueued trials are consumed sequentially by ask() calls."""
+        study, study_name = self._make_study()
+
+        # Seed first trial to lock the categorical distribution
+        trial0 = study.ask()
+        trial0.suggest_categorical("resolution", [256, 512, 1024])
+        trial0.suggest_float("lr", 1e-4, 1e-2, log=True)
+        study.tell(trial0.number, state=TrialState.COMPLETE, values=[0.5, 0.5])
+
+        study.enqueue_trial({"resolution": 256})
+        study.enqueue_trial({"resolution": 512})
+
+        # FIFO
+        trial1 = study.ask()
+        res1 = trial1.suggest_categorical("resolution", [256, 512, 1024])
+        self.assertEqual(res1, 256, "First enqueued trial should be consumed first")
+        study.tell(trial1.number, state=TrialState.COMPLETE, values=[0.6, 0.5])
+
+        trial2 = study.ask()
+        res2 = trial2.suggest_categorical("resolution", [256, 512, 1024])
+        self.assertEqual(res2, 512, "Second enqueued trial should be consumed second")
+        study.tell(trial2.number, state=TrialState.COMPLETE, values=[0.6, 0.5])
+
+        self.assertNotEqual(trial1.number, trial2.number,
+                            "Sequential enqueued trials must have distinct trial numbers")
 
 
 if __name__ == "__main__":
