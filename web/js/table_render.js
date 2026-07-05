@@ -49,11 +49,7 @@ function renderDashboardTableBody(displayTrials, paretoSet, data) {
     const tbody = document.getElementById("trials-table-body");
     if (!tbody) return;
     const ev = data.hpo_config?.eval_protocol || {};
-    let paramKeys = [];
-    data.trials.forEach((t) => Object.keys(t.params).forEach((k) => {
-        if (!paramKeys.includes(k)) paramKeys.push(k);
-    }));
-    paramKeys.sort();
+    const paramKeys = getParamKeys();
 
     const piped = applyTablePipeline(displayTrials, "dashboard");
     if (!piped.length) {
@@ -101,7 +97,7 @@ function renderDashboardTableBody(displayTrials, paretoSet, data) {
     syncTrialColumnWidth(document.getElementById("dashboard-trial-table"), piped);
 }
 
-function getAnalysisParamKeys() {
+function getParamKeys() {
     const activeSpace = window.HPOState.data.activeSearchSpace || {};
     let keys = Object.keys(activeSpace).filter(k => !k.startsWith("_") && typeof activeSpace[k] === "object");
     if (keys.length === 0 && window.HPOState.data.trials && window.HPOState.data.trials.length > 0) {
@@ -122,7 +118,7 @@ function renderAnalysisTableBody(displayTrials) {
     if (!tbody) return;
     applyAnalysisTableHeaders();
     const ev = window.HPOState.data.hpoConfig?.eval_protocol || {};
-    const paramKeys = getAnalysisParamKeys();
+    const paramKeys = getParamKeys();
     const piped = applyTablePipeline(displayTrials, "analysis");
     if (!piped.length) {
         const totalCols = 4 + (ev.enabled ? 1 : 0) + paramKeys.length + 1;
@@ -172,7 +168,7 @@ function renderAnalysisTrialsTable(trials) {
 function applyAnalysisTableHeaders() {
     const ev = window.HPOState.data.hpoConfig?.eval_protocol || {};
     const paramLabels = window.HPOState.data.hpoConfig?.param_labels || {};
-    const paramKeys = getAnalysisParamKeys();
+    const paramKeys = getParamKeys();
 
     const lossLabel = window.HPOState.data.hpoConfig?.metric_loss_label || "Loss";
     const scoreLabel = window.HPOState.data.hpoConfig?.metric_score_label || "Score";
@@ -197,7 +193,7 @@ function applyAnalysisTableHeaders() {
             const label = paramLabels[k] || k.replace(/_/g, " ");
             thHtml += buildSortableTh(label, `param:${k}`, "analysis");
         });
-        thHtml += `<th data-col-label="Actions" style="text-align: right; width: 85px;">Actions</th>`;
+        thHtml += `<th data-col-label="Actions" style="text-align: right;">Actions</th>`;
         tableHeader.innerHTML = thHtml;
         const table = tableHeader.closest("table");
         const baseTrials = window.HPOState.data.trials || [];
@@ -213,23 +209,8 @@ function renderStudyDetails(data) {
     if (data.hpo_config) applyAnalysisTableHeaders();
     applyEvalInsightsUi();
 
-    // Find all parameters defined in trials or search space dynamically
-    let paramKeys = [];
     const paramLabels = data.hpo_config?.param_labels || {};
-    
-    if (data.trials && data.trials.length > 0) {
-        data.trials.forEach(t => {
-            Object.keys(t.params).forEach(k => {
-                if (!paramKeys.includes(k)) paramKeys.push(k);
-            });
-        });
-    } else if (window.HPOState.data.activeSearchSpace) {
-        Object.keys(window.HPOState.data.activeSearchSpace).forEach(k => {
-            if (!k.startsWith("_") && !paramKeys.includes(k)) paramKeys.push(k);
-        });
-    }
-    paramKeys.sort();
-
+    const paramKeys = getParamKeys();
     const ev = data.hpo_config?.eval_protocol || {};
 
     // Render live monitor table headers dynamically
@@ -255,7 +236,7 @@ function renderStudyDetails(data) {
                 thHtml += buildSortableTh(label, `param:${k}`, "dashboard");
             });
             thHtml += `<th class="col-pareto" data-col-label="Pareto">★</th>`;
-            thHtml += `<th data-col-label="Actions" style="text-align: right; width: 85px;">Actions</th>`;
+            thHtml += `<th data-col-label="Actions" style="text-align: right;">Actions</th>`;
             tableHeader.innerHTML = thHtml;
             const table = tableHeader.closest("table");
             syncTrialColumnWidth(table, data.trials || []);
