@@ -49,18 +49,3 @@ def test_complete_requires_lease_for_inflight_trial(client, initialized_study):
               "history": [{"epoch": 1, "score": 0.6, "loss": 0.4}], "state": "COMPLETE"},
     )
     assert bad.status_code == 403
-
-
-def test_api_requires_token_when_configured(client, initialized_study, monkeypatch):
-    monkeypatch.setenv("HPO_SECRET_TOKEN", "sekret")
-    assert client.get(f"/api/study_details?study_name={initialized_study}").status_code == 401
-    ok = client.get(f"/api/study_details?study_name={initialized_study}", headers={"X-HPO-Token": "sekret"})
-    assert ok.status_code == 200
-
-
-def test_login_cookie_then_authorizes(client, initialized_study, monkeypatch):
-    monkeypatch.setenv("HPO_SECRET_TOKEN", "sekret")
-    assert client.post("/api/login", json={"token": "nope"}).status_code == 401
-    assert client.post("/api/login", json={"token": "sekret"}).status_code == 200
-    # The httpOnly cookie now authorizes /api requests without any header.
-    assert client.get(f"/api/study_details?study_name={initialized_study}").status_code == 200

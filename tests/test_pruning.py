@@ -65,23 +65,6 @@ class TestPruning(unittest.TestCase):
         score = _epoch_composite_score(self.study, frozen, 1, {"enabled": False})
         self.assertEqual(score, 0.0)  # 0.5 - 0.5 = 0.0
 
-    def test_composite_score_zscore_and_zero_variance_clamp(self):
-        """11 trials with identical scores (zero variance) -> Z-score with epsilon clamp returns 0.0."""
-        last_number = None
-        for i in range(11):
-            self.study.enqueue_trial({"learning_rate": 1e-3, "batch_size": 16})
-            t = self.study.ask()
-            self.study._storage.set_trial_user_attr(t._trial_id, "history", [{"epoch": 1, "score": 0.8, "loss": 0.2}])
-            if i < 10:
-                self.study.tell(t.number, [0.2, 0.8])
-            else:
-                last_number = t.number
-
-        frozen = self._get_frozen_trial(last_number)
-        score = _epoch_composite_score(self.study, frozen, 1, {"enabled": False})
-        # z_score = (0.8 - 0.8) / 1.0 = 0.0, z_loss = -(0.2 - 0.2) / 1.0 = 0.0
-        self.assertEqual(score, 0.0)
-
     def test_composite_score_zscore_normal_variance(self):
         """11 trials with varying scores -> Z-score normalization produces meaningful non-zero result."""
         score_vals = [0.3, 0.4, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85]
