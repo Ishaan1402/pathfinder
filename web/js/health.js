@@ -41,7 +41,10 @@ async function checkStudyHealth(throwOnError = false) {
         if (!card) return;
         window.HPOState.data.studyHealthReason = window.HPOState.data.healthReason = data.health_reason || "";
         window.HPOState.data.healthTier = data.health_tier || "healthy";
-        card.className = "card health-card " + (data.health_tier || "healthy");
+        const tier = data.health_tier || "healthy";
+        card.className = "card health-card";
+        const orb = document.getElementById("health-orb");
+        if (orb) orb.className = "status-orb " + tier;
         if (mark) mark.classList.remove("ping-watch", "ping-intervene", "ping-twice");
         if (badge) { badge.className = `badge ${data.health_tier || 'healthy'}`; badge.textContent = (data.health_tier || 'healthy').toUpperCase(); }
         if (data.health_tier === "healthy") {
@@ -84,12 +87,10 @@ function syncTelemetryFromTrials(trials) {
         return;
     }
 
+    window.HPOState.telemetry.trialNumber = running.number;
     const epochSuffix =
         running.latest_epoch != null ? ` · E${running.latest_epoch}` : "";
     const label = `Trial #${running.number}${epochSuffix}`;
-    if (window.HPOState.telemetry.trialNumber !== running.number) {
-        window.HPOState.telemetry.trialNumber = running.number;
-    }
     setWorkerRunIndicator(true, label);
 }
 

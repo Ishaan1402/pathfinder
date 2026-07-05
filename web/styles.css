@@ -155,6 +155,7 @@
             margin-bottom: 18px;
             overflow: hidden;
             width: 100%;
+            padding-left: 12px;
         }
 
         .brand-logo-group {
@@ -165,12 +166,11 @@
 
         .brand-mark {
             flex-shrink: 0;
-            width: 3px;
-            height: 20px;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
             background-color: var(--accent-color);
-            border-radius: 0;
-            transition: background-color 0.3s ease, transform 0.2s cubic-bezier(0.25, 1, 0.5, 1), box-shadow 0.2s ease;
-            transform-origin: center;
+            transition: background-color 0.3s ease, opacity 0.3s ease;
         }
 
         .brand-mark.collision-flash {
@@ -484,7 +484,6 @@
         .sidebar-footer {
             margin-top: auto;
             border-top: 1px solid var(--border-color);
-            padding-top: 12px;
             display: flex;
             flex-direction: column;
             gap: 0;
@@ -495,9 +494,10 @@
             align-items: center;
             gap: 10px;
             width: 100%;
-            padding: 8px 4px;
+            padding: 12px 12px;
             background: none;
             border: none;
+            border-bottom: 1px solid var(--border-color);
             color: var(--text-muted);
             font-family: var(--font-main);
             font-size: 0.8rem;
@@ -506,6 +506,7 @@
             letter-spacing: 0.05em;
             cursor: pointer;
             transition: color 0.2s ease;
+            line-height: 1;
         }
 
         .accent-toggle:hover {
@@ -514,7 +515,7 @@
 
         .accent-preview {
             width: 14px;
-            height: 10px;
+            height: 12px;
             border-radius: 0;
             background: var(--accent-color);
             border: 2px solid rgba(255, 255, 255, 0.25);
@@ -575,6 +576,7 @@
             cursor: pointer;
             padding: 5px 2px;
             text-align: center;
+            line-height: 1;
             transition: all 0.15s ease;
         }
 
@@ -593,8 +595,6 @@
             align-items: center;
             gap: 10px;
             padding: 12px 4px 4px;
-            border-top: 1px solid var(--border-color);
-            margin-top: 4px;
         }
 
         .worker-run-dot {
@@ -736,7 +736,6 @@
         #dashboard-view > .dashboard-sidebar {
             height: 100%;
             min-height: 0;
-            overflow: hidden;
         }
 
         /* Left column: trial table + pareto (original layout) */
@@ -919,11 +918,11 @@
         }
 
         .section-label {
-            font-size: 0.68rem;
+            font-size: 0.75rem;
             font-weight: 500;
             text-transform: uppercase;
             letter-spacing: 0.06em;
-            color: var(--text-muted);
+            color: #94a3b8;
             margin: 0 0 10px 0;
         }
 
@@ -1005,6 +1004,7 @@
         /* Live Monitor Table Styling */
         .trial-table {
             width: 100%;
+            min-width: 100%;
             border-collapse: collapse;
             font-family: var(--font-mono);
             font-size: 0.8rem;
@@ -1026,6 +1026,7 @@
 
         .table-scroll-wrapper {
             overflow: auto;
+            box-shadow: inset 0 -1px 0 var(--border-color), inset -1px 0 0 var(--border-color);
         }
 
         .card-content--table {
@@ -1153,7 +1154,7 @@
             position: absolute;
             top: 0;
             right: 0;
-            width: 4px;
+            width: 8px;
             cursor: col-resize;
             user-select: none;
             height: 100%;
@@ -1276,7 +1277,7 @@
         }
 
         .trial-table .col-trial { width: 60px; min-width: 60px; }
-        .trial-table .col-state { width: 100px; }
+        .trial-table .col-state { width: 120px; }
         .trial-table .col-metric { width: 72px; }
         .trial-table .col-score-fixed { width: 72px; }
         .trial-table .col-lr { width: 64px; }
@@ -1395,6 +1396,7 @@
             min-height: 0;
             flex: 1;
             background-color: transparent;
+            height: 100%;
         }
 
         .dashboard-sidebar > .card {
@@ -1840,13 +1842,13 @@
             cursor: pointer;
             transition: all 0.2s ease;
             font-family: var(--font-mono);
+            line-height: 1;
         }
 
         .pill-btn.active {
             background-color: rgba(6, 182, 212, 0.12);
             border-color: var(--accent-color);
             color: var(--accent-color);
-            box-shadow: 0 0 10px var(--accent-glow);
         }
 
         .apply-btn {
@@ -2198,67 +2200,21 @@
         }
 
         .brand-mark.ping-watch {
-            animation: brand-mark-ping-watch-anim 3s infinite ease-in-out;
+            animation: brand-mark-ping-watch-anim 2s infinite ease-in-out;
         }
 
         @keyframes brand-mark-ping-watch-anim {
-            0%, 100% {
-                transform: scale(1);
-                box-shadow: none;
-                background-color: var(--accent-color);
-            }
-            10% {
-                transform: scale(1.2);
-                box-shadow: 0 0 10px #ffffff;
-                background-color: #ffffff;
-            }
-            20% {
-                transform: scale(1);
-                box-shadow: none;
-                background-color: var(--accent-color);
-            }
-            30% {
-                transform: scale(1.2);
-                box-shadow: 0 0 10px #ffffff;
-                background-color: #ffffff;
-            }
-            40%, 90% {
-                transform: scale(1);
-                box-shadow: none;
-                background-color: var(--accent-color);
-            }
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.35; }
         }
 
         .brand-mark.ping-intervene {
-            animation: brand-mark-ping-intervene-anim 3s infinite ease-in-out;
+            animation: brand-mark-ping-intervene-anim 2s infinite ease-in-out;
         }
 
         @keyframes brand-mark-ping-intervene-anim {
-            0%, 100% {
-                transform: scale(1);
-                box-shadow: none;
-                background-color: var(--accent-color);
-            }
-            10% {
-                transform: scale(1.2);
-                box-shadow: 0 0 10px #ff3b30;
-                background-color: #ff3b30;
-            }
-            20% {
-                transform: scale(1);
-                box-shadow: none;
-                background-color: var(--accent-color);
-            }
-            30% {
-                transform: scale(1.2);
-                box-shadow: 0 0 10px #ff3b30;
-                background-color: #ff3b30;
-            }
-            40%, 90% {
-                transform: scale(1);
-                box-shadow: none;
-                background-color: var(--accent-color);
-            }
+            0%, 100% { opacity: 1; background-color: #ff3b30; }
+            50% { opacity: 0.2; background-color: #ff3b30; }
         }
 
         .pending-banner {
@@ -2368,21 +2324,11 @@
         .health-card {
             flex: 0 0 auto;
             transition: all 0.2s ease;
-            border-left: 3px solid #10B981 !important;
-        }
-        .health-card.healthy {
-            border-left-color: #10B981 !important;
-        }
-        .health-card.watch {
-            border-left-color: #f59e0b !important;
-        }
-        .health-card.intervene {
-            border-left-color: #ef4444 !important;
         }
         .status-orb {
-            width: 16px;
-            height: 6px;
-            border-radius: 0;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
             display: inline-block;
             transition: all 0.2s ease;
             flex-shrink: 0;
@@ -2688,7 +2634,6 @@
         .control-group {
             display: flex;
             align-items: center;
-            justify-content: space-between;
             gap: 12px;
             padding: 10px 12px;
             border-bottom: 1px solid var(--border-color);
@@ -2700,21 +2645,23 @@
         }
 
         .control-label {
-            flex: 0 0 200px;
-            margin-right: 24px;
+            flex: 0 0 180px;
+            margin-right: 12px;
             font-weight: 500;
             font-size: 0.85rem;
             color: var(--text-color);
+            line-height: 1.2;
         }
 
         .eval-text-input {
             width: 220px;
-            padding: 4px 8px;
+            padding: 6px 8px;
             font-family: var(--font-mono);
-            font-size: 0.82rem;
+            font-size: 0.78rem;
             background: rgba(255, 255, 255, 0.03);
             border: 1px solid var(--border-color);
             border-radius: 0;
+            color: var(--text-color);
             color: #fff;
         }
 
@@ -2726,9 +2673,16 @@
         .number-input--compact {
             flex: 0 0 auto;
             width: 110px;
-            padding: 4px 8px;
+            padding: 6px 8px;
             border-radius: 0;
-            font-size: 0.82rem;
+            font-size: 0.78rem;
+            -moz-appearance: textfield;
+        }
+
+        .number-input--compact::-webkit-inner-spin-button,
+        .number-input--compact::-webkit-outer-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
         }
 
         #settings-tab-eval .hpo-toggle--eval .hpo-toggle-box {
@@ -2749,7 +2703,7 @@
 
         .eval-form-section .section-label {
             padding: 0 12px;
-            margin-bottom: 0;
+            margin-bottom: 8px;
         }
 
         .eval-form-section .control-group:last-child {
@@ -2760,6 +2714,11 @@
             display: flex;
             justify-content: flex-end;
             margin-top: 14px;
+        }
+
+        .eval-form-actions .toolbar-btn {
+            font-size: 0.8rem;
+            padding: 8px 16px;
         }
 
         .page-header {
@@ -2828,5 +2787,18 @@
         .btn-new-study-header:hover {
             background: var(--accent-color, #06b6d4);
             color: #000000;
+        }
+
+        /* Chart.js tooltip constraints */
+        #chartjs-tooltip {
+            max-width: 280px;
+            white-space: normal;
+            word-break: break-word;
+            border-radius: 6px;
+            pointer-events: none;
+        }
+
+        #chartjs-tooltip table {
+            margin: 0;
         }
 

@@ -70,15 +70,7 @@ async function saveEvalProtocol() {
 }
 
 function togglePill(param, option, btn) {
-    const list = window.HPOState.data.activeSearchSpace[param].active;
-    const val = isNaN(option) ? option : Number(option);
-    const index = list.indexOf(val);
-    if (index > -1) {
-        if (list.length > 1) { list.splice(index, 1); btn.classList.remove("active"); }
-    } else {
-        list.push(val);
-        btn.classList.add("active");
-    }
+    btn.classList.toggle("active");
     markParamModified(param);
 }
 
@@ -87,6 +79,10 @@ async function applySingleParamConstraints(param) {
     if (val.type === "float" || val.type === "float_log" || val.type === "int") {
         const minEl = document.getElementById(`${param}-min`), maxEl = document.getElementById(`${param}-max`);
         if (minEl && maxEl) { val.min = Number(minEl.value); val.max = Number(maxEl.value); }
+    } else if (val.type === "categorical") {
+        const pills = [...document.querySelectorAll(`#group-${param} .pill-btn.active`)]
+            .map(b => { const v = b.textContent; return isNaN(v) ? v : Number(v); });
+        val.active = pills;
     }
     try {
         const res = await fetch(`/api/update_search_space?study_name=${window.HPOState.session.studyName}`, {
@@ -193,6 +189,37 @@ function renderDashboardSearchSpaceSummary() {
 }
 
 function markParamModified(param) {
+    const currentSpace = window.HPOState.data.activeSearchSpace || {};
+    const cfg = currentSpace[param];
+    if (!cfg) return clearParamModified(param);
+
+    if (cfg.type === "categorical") {
+        const activePills = [...document.querySelectorAll(`#group-${param} .pill-btn.active`)]
+            .map(b => { const v = b.textContent; return isNaN(v) ? v : Number(v); });
+        const original = (cfg.active || []).slice().sort();
+        const current = activePills.slice().sort();
+        if (original.length === current.length && original.every((v, i) => v === current[i])) {
+            clearParamModified(param);
+            return;
+        }
+        window.HPOState.ui.modifiedParams.add(param);
+        const indicator = document.getElementById(`indicator-${param}`);
+        const btn = document.getElementById(`apply-btn-${param}`);
+        if (indicator) indicator.style.opacity = 1;
+        if (btn) btn.style.display = "inline-block";
+        return;
+    }
+
+    const minInput = document.getElementById(`${param}-min`);
+    const maxInput = document.getElementById(`${param}-max`);
+    const minChanged = minInput && parseFloat(minInput.value) !== parseFloat(cfg.min);
+    const maxChanged = maxInput && parseFloat(maxInput.value) !== parseFloat(cfg.max);
+
+    if (!minChanged && !maxChanged) {
+        clearParamModified(param);
+        return;
+    }
+
     window.HPOState.ui.modifiedParams.add(param);
     const indicator = document.getElementById(`indicator-${param}`);
     const btn = document.getElementById(`apply-btn-${param}`);
