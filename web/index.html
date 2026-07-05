@@ -19,12 +19,12 @@
                 <ul class="nav-list"><li class="nav-item active" id="nav-dashboard" onclick="window.location.hash = 'dashboard'"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg><span class="sidebar-label">Dashboard</span></li><li class="nav-item" id="nav-analysis" onclick="window.location.hash = 'analysis'"><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M18.5 9.5L13 15L9 11L5 15"/></svg><span class="sidebar-label">Analysis</span></li><li class="nav-item" id="nav-search-space" onclick="window.location.hash = 'search-space'"><svg viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg><span class="sidebar-label">Search Space</span></li></ul>
             </div>
             <div class="sidebar-footer">
-                <button type="button" class="accent-toggle" id="accent-toggle" aria-expanded="false" onclick="toggleAccentPanel()" style="margin-bottom: 6px; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;">
-                    <span class="accent-preview" id="accent-preview"></span><span class="sidebar-label">Style</span>
+                <button type="button" class="accent-toggle" id="accent-toggle" aria-expanded="false" onclick="toggleAccentPanel()">
+                    <span class="accent-preview" id="accent-preview"></span><span class="sidebar-label" style="line-height:1">Style</span>
                     <svg class="accent-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
                 </button>
                 <div class="accent-panel" id="accent-panel"><div style="display: flex; flex-direction: column; gap: 10px; padding: 4px 6px;"><div style="display: flex; flex-direction: column; gap: 4px;"><span style="font-size: 0.65rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted);">Accent Color</span><div class="accent-picker"><span class="accent-dot active" data-accent="cyan" style="background-color: #06b6d4;" onclick="changeAccent('cyan', '#06b6d4', 'rgba(6, 182, 212, 0.3)')"></span><span class="accent-dot" data-accent="blue" style="background-color: #3b82f6;" onclick="changeAccent('blue', '#3b82f6', 'rgba(59, 130, 246, 0.3)')"></span><span class="accent-dot" data-accent="orange-red" style="background-color: #f97316;" onclick="changeAccent('orange-red', '#f97316', 'rgba(249, 115, 22, 0.3)')"></span><span class="accent-dot" data-accent="purple" style="background-color: #a855f7;" onclick="changeAccent('purple', '#a855f7', 'rgba(168, 85, 247, 0.3)')"></span><span class="accent-dot" data-accent="green" style="background-color: #10b981;" onclick="changeAccent('green', '#10b981', 'rgba(16, 185, 129, 0.3)')"></span></div></div><div style="display: flex; flex-direction: column; gap: 4px; border-top: 1px solid rgba(255, 255, 255, 0.04); padding-top: 8px;"><span style="font-size: 0.65rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted);">Status Cells</span><div class="style-selector-segmented"><button type="button" class="style-segment-btn" id="btn-status-led" onclick="setStatusStyle('led')">Indicator</button><button type="button" class="style-segment-btn" id="btn-status-full" onclick="setStatusStyle('full')">Full Cell</button></div></div></div></div>
-                <button type="button" class="accent-toggle" id="export-toggle" aria-expanded="false" onclick="toggleExportPanel()" style="border-top: 1px solid var(--border-color); padding-top: 10px; margin-top: 4px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px; margin-right: 10px; flex-shrink: 0;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg><span class="sidebar-label" style="font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Export Data</span><svg class="accent-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+                <button type="button" class="accent-toggle" id="export-toggle" aria-expanded="false" onclick="toggleExportPanel()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px; flex-shrink: 0;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg><span class="sidebar-label" style="font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Export Data</span><svg class="accent-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
                 <div class="accent-panel" id="export-panel"><div style="display: flex; flex-direction: column; gap: 6px; padding: 4px 6px;"><button type="button" class="export-panel-btn" onclick="exportParetoFront()">Pareto Frontier (.csv)</button><button type="button" class="export-panel-btn" onclick="exportStudyConfig()">Study Config (.json)</button><button type="button" class="export-panel-btn" onclick="exportFullTrialsJson()">Full Study Trials (.json)</button></div></div>
                 <div class="worker-run-indicator" id="worker-run-indicator" title="Training worker status"><span class="worker-run-dot idle" id="worker-run-dot"></span><span class="worker-run-label sidebar-label" id="worker-run-label">Worker idle</span></div>
             </div>
@@ -42,8 +42,7 @@
                         <div style="display: flex; align-items: center; gap: 6px;">
                             <span>STUDY:</span>
                             <select id="study-select" style="background: transparent; color: #fff; border: none; padding: 0 16px 0 0; font-size: 0.8rem; font-family: var(--font-mono); font-weight: 600; outline: none; cursor: pointer; -webkit-appearance: none; -moz-appearance: none; appearance: none; background-image: url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2210%22 height=%2210%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%237e8c9f%22 stroke-width=%223%22><path d=%22M6 9l6 6 6-6%22/></svg>'); background-repeat: no-repeat; background-position: right center; background-size: 10px;">
-                                <option value="bridge_crack_study" selected>bridge_crack_study</option>
-                            </select>
+                             </select>
                         </div><span style="color: var(--border-color); font-weight: 300;">/</span>
                         <div style="display: flex; align-items: center; gap: 6px;"><span>WORKERS:</span><strong id="workers-count-val" style="color: #fff; font-weight: 600;">0</strong></div>
                     </div>
@@ -107,21 +106,12 @@
                 </div>
                 <div class="dashboard-sidebar">
                     <div class="card health-card" id="study-health-card" style="margin-bottom: 0;">
-                        <div class="card-header" style="display: flex; align-items: center; justify-content: space-between;"><span>Study Health</span><span id="health-badge" class="badge healthy">HEALTHY</span></div>
+                        <div class="card-header" style="display: flex; align-items: center; justify-content: space-between;"><span style="display: flex; align-items: center; gap: 8px;"><span class="status-orb healthy" id="health-orb"></span>Study Health</span><span id="health-badge" class="badge healthy">HEALTHY</span></div>
                         <div class="card-content health-card-content">
                             <div class="health-panel-grid">
                                 <div class="health-panel-col" id="health-current-state">
-                                    <div class="health-panel-col-title">Current State</div><div id="health-rating-blocks" class="health-blocks health-blocks-empty">— — — — —</div><div id="health-tier-line" class="health-tier-line">Healthy</div><p id="health-message" class="health-reason-line">No anomalies detected. Search space is healthy.</p><div id="stat-confidence-banner-dashboard" class="stat-confidence-note hidden"></div>
+                                    <div class="health-panel-col-title">Current State</div><div id="health-tier-line" class="health-tier-line">Healthy</div><p id="health-message" class="health-reason-line">No anomalies detected.</p><div id="stat-confidence-banner-dashboard" class="stat-confidence-note hidden"></div>
                                 </div>
-                                <div class="health-panel-col" id="health-latest-action">
-                                    <div class="health-panel-col-title">Latest Coordinator Action</div><div id="health-action-body"><div class="health-action-line health-action-muted">No coordinator action recorded</div></div>
-                                </div>
-                            </div>
-                            <details class="audit-history-details" id="audit-history-details">
-                                <summary id="audit-history-summary">Show audit history</summary><div id="past-reviews-list" class="audit-history-list"></div>
-                            </details>
-                            <div id="health-action-container" style="display: flex; gap: 8px; margin-top: 8px;">
-                                <button id="health-action-btn" class="toolbar-btn" style="display: none;" onclick="copyDiagnosticPrompt()">Copy Diagnostic Prompt</button>
                             </div>
                         </div>
                     </div>
@@ -133,14 +123,6 @@
                         <div class="card-header">Active Search Space</div>
                         <div class="card-content" id="dashboard-search-space-summary-content" style="padding: 12px; font-family: var(--font-mono); font-size: 0.78rem; display: flex; flex-direction: column; gap: 6px; overflow-y: auto;"><div style="color: var(--text-muted); text-align: center; padding: 10px;">Loading space bounds...</div></div>
                     </div>
-                    <details class="card" id="remote-worker-setup-details" style="margin-bottom: 0; padding: 0; background: transparent; border: 1px solid var(--border-color);">
-                        <summary style="padding: 10px 12px; cursor: pointer; font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); user-select: none; border-bottom: 1px solid var(--border-color);">Remote Worker Setup</summary>
-                        <div style="padding: 12px; font-size: 0.78rem; color: var(--text-muted); line-height: 1.5;">
-                            <p style="margin: 0 0 8px;"><code>export HPO_BROKER_URL=http://your-broker:8000</code></p>
-                            <p style="margin: 0 0 8px;"><code>export HPO_STUDY_NAME=your_study_name</code></p>
-                            <p style="margin: 0; font-style: italic;">See docs/INTEGRATION.md for full worker setup instructions.</p>
-                        </div>
-                    </details>
                 </div>
             </div>
             <div class="content-view" id="analysis-view">
@@ -210,6 +192,8 @@
                                 <div class="control-group"><div class="control-label"><span>Score train column label</span></div><input type="text" class="eval-text-input" id="eval-score-train-label" value="Score (train)"></div>
                                 <div class="control-group"><div class="control-label"><span>Score fixed column label</span></div><input type="text" class="eval-text-input" id="eval-score-fixed-label" value="Score (eval)"></div>
                             </div>
+                            <details style="margin-top: 12px; padding: 8px 0; border-top: 1px solid var(--border-color);">
+                                <summary style="cursor: pointer; font-size: 0.8rem; font-weight: 600; text-transform: uppercase; color: var(--text-muted); padding: 4px 0; user-select: none;">Advanced</summary>
                             <div class="eval-form-section">
                                 <p class="section-label">Evaluation parameters</p>
                                 <div class="control-group control-group--toggle">
@@ -237,6 +221,7 @@
                                 <div class="control-group"><div class="control-label"><span>Min loss threshold</span></div><input type="number" class="number-input number-input--compact" id="validation-loss-min" step="0.01" placeholder="e.g. 0.0"></div>
                                 <div class="control-group"><div class="control-label"><span>Max epoch score jump (fraction)</span></div><input type="number" class="number-input number-input--compact" id="validation-max-epoch-jump" step="0.05" min="0" max="10" placeholder="e.g. 0.5"></div>
                             </div>
+                            </details>
                             <div class="eval-form-actions"><button type="button" class="toolbar-btn" onclick="saveEvalProtocol()">Save eval protocol</button></div>
                         </div>
                     </div>
@@ -253,26 +238,6 @@
                         <div><h4 style="font-size: 0.85rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 8px; font-weight: 600;">Hyperparameters</h4><div class="param-grid" id="modal-params"></div></div>
                         <div id="modal-oom-section" style="display:none; background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.35); padding: 10px 12px; font-size: 0.8rem; line-height: 1.55;"><div style="color: #f87171; font-weight: 700; margin-bottom: 4px;">⚠ Out-of-Memory Crash</div><div id="modal-oom-detail" style="color: var(--text-muted);"></div></div>
                         <div id="modal-health-warning-section" style="display:none; background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.35); padding: 10px 12px; font-size: 0.8rem; line-height: 1.55;"><div style="color: #fbbf24; font-weight: 700; margin-bottom: 4px;">⚠ Metric Validation Warning</div><div id="modal-health-warning-detail" style="color: var(--text-muted);"></div></div>
-                        <div id="modal-env-section" style="display:none; border: 1px solid var(--border-color); background: rgba(255,255,255,0.01); font-size: 0.8rem;">
-                            <div class="card-header" style="cursor: pointer; user-select: none; display: flex; align-items: center; justify-content: space-between; padding: 8px 10px;" onclick="window.toggleModalEnvCard()">
-                                <div style="display: flex; align-items: center; gap: 6px;">
-                                    <svg id="modal-env-chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" style="transition: transform 0.2s ease; transform: rotate(180deg);"><path d="M18 15l-6-6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                                    <span style="font-weight: 500;">Environment Details</span>
-                                </div>
-                            </div>
-                            <div id="modal-env-content" style="padding: 10px; display: none; border-top: 1px solid var(--border-color); flex-direction: column; gap: 6px;">
-                                <div style="display: flex; justify-content: space-between;"><span style="color: var(--text-muted);">Hostname:</span><span id="modal-env-hostname" class="td-mono"></span></div>
-                                <div style="display: flex; justify-content: space-between;"><span style="color: var(--text-muted);">Platform:</span><span id="modal-env-platform" class="td-mono"></span></div>
-                                <div style="display: flex; justify-content: space-between;"><span style="color: var(--text-muted);">Python version:</span><span id="modal-env-python" class="td-mono"></span></div>
-                                <div style="display: flex; justify-content: space-between;"><span style="color: var(--text-muted);">CUDA version:</span><span id="modal-env-cuda" class="td-mono"></span></div>
-                                <div style="display: flex; justify-content: space-between;"><span style="color: var(--text-muted);">Git commit:</span><span id="modal-env-git" class="td-mono"></span></div>
-                                <div style="display: flex; justify-content: space-between;"><span style="color: var(--text-muted);">Dataset version:</span><span id="modal-env-dataset" class="td-mono"></span></div>
-                                <div style="display: flex; flex-direction: column; gap: 4px; margin-top: 6px;">
-                                    <span style="color: var(--text-muted);">Pip Freeze:</span>
-                                    <textarea id="modal-env-pip" readonly style="width: 100%; height: 80px; font-family: var(--font-mono); font-size: 0.72rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); padding: 4px; color: var(--text-color); resize: none; outline: none;"></textarea>
-                                </div>
-                            </div>
-                        </div>
                         <div><h4 id="modal-rationale-title" style="font-size: 0.85rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 6px; font-weight: 600;">Suggestion</h4><div class="thought-card" style="max-height: 140px; background-color: rgba(255,255,255,0.01);"><p class="thought-quote" id="modal-reasoning" style="margin-bottom: 0; font-size: 0.82rem;"></p></div></div>
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 8px;">

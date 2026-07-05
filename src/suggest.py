@@ -1,5 +1,7 @@
 
 import json
+import logging
+import random
 from typing import Optional
 from pydantic import BaseModel
 from fastapi import HTTPException
@@ -133,8 +135,6 @@ def handle_api_suggest_trial(req: SuggestRequest):
                 if repaired:
                     print(f"Repaired {repaired} corrupt categorical param row(s) in study '{req.study_name}'.")
             except Exception as e:
-                # Fallback: if there is a database issue during repair, do not crash suggestion
-                import logging
                 logging.getLogger(__name__).warning(f"Failed to repair categorical param indices: {e}")
         space = load_search_space(req.study_name)
         hpo_config = load_hpo_config(req.study_name)
@@ -174,10 +174,14 @@ def handle_api_suggest_trial(req: SuggestRequest):
             # Optuna does not support narrowing categorical distributions after the first
             # trial.  TPE always samples from the full historical choice set.  When a user
             # deactivates a choice (dashboard Settings), we must handle TPE sampling an
-            # inactive value.  We retry up to 20 times, failing each attempt in Optuna.
-            # This tells TPE that the deactivated region is unproductive — a best-effort
-            # heuristic given Optuna's static-distribution design.  On the final attempt,
-            # we substitute a random active choice instead of 500-ing the worker.
+            # inactive value.  We FAIL the attempt and enqueue a trial with a random active
+            # value for the violated categorical(s) so the next study.ask() returns a valid
+            # trial immediately instead of retrying up to 20 times.  TPE does not learn from
+            # FAIL trials, so narrowed categoricals revert to random selection for the
+            # remainder of the study — a bounded cost in practice (small active sets are
+            # exhaustively covered in a few trials, and TPE guidance on discrete dimensions
+            # is inherently weak).  The final-attempt random fallback is kept as a
+            # belt-and-suspenders safety net.
             MAX_RESAMPLE_ATTEMPTS = 20
             for attempt in range(MAX_RESAMPLE_ATTEMPTS):
                 trial = study.ask()
@@ -191,9 +195,7 @@ def handle_api_suggest_trial(req: SuggestRequest):
                     params = suggest_params_from_space(study, trial, space)
                     break
                 except ValueError:
-                    # TPE sampled an inactive categorical
                     if attempt < MAX_RESAMPLE_ATTEMPTS - 1:
-                        # Fail the trial and retry with a fresh one
                         try:
                             study.tell(trial.number, state=TrialState.FAIL)
                         except Exception:
@@ -201,9 +203,25 @@ def handle_api_suggest_trial(req: SuggestRequest):
                         with get_db_session() as session:
                             delete_lease_by_trial_id(session, trial_id)
                             session.commit()
+                        # Enqueue a trial with random active values for violated
+                        # categoricals so the next study.ask() returns a valid trial.
+                        fixed = _finalize_trial_params(dict(trial.params), space)
+                        violated: dict = {}
+                        for param, cfg in space.items():
+                            if isinstance(cfg, dict) and cfg.get("type") == "categorical":
+                                active = list(cfg.get("active") or cfg.get("options") or [])
+                                if active and fixed.get(param) not in active:
+                                    violated[param] = random.choice(active)
+                        if violated:
+                            try:
+                                study.enqueue_trial(violated)
+                            except Exception:
+                                logging.getLogger(__name__).warning(
+                                    "enqueue_trial failed for violated categoricals %s",
+                                    list(violated.keys()),
+                                )
                         continue
                     # Final attempt — fallback: pick random active values for violated categoricals
-                    import random
                     fixed = _finalize_trial_params(dict(trial.params), space)
                     for param, cfg in space.items():
                         if isinstance(cfg, dict) and cfg.get("type") == "categorical":

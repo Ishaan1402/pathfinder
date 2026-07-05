@@ -3,12 +3,13 @@
 [![Build Status](https://github.com/Ishaan1402/pathfinder/actions/workflows/integration.yml/badge.svg)](https://github.com/Ishaan1402/pathfinder/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
 
-Pathfinder is an MCP-integrated hyperparameter optimization dashboard that lets AI coding agents onboard your training script and inspect running experiments. It wraps Optuna's TPE sampler in a FastAPI broker with SQLite persistence and a vanilla JS dashboard, while exposing structured study data through Model Context Protocol tools so your IDE agent can meaningfully participate in the tuning loop.
+Pathfinder is an MCP-integrated hyperparameter optimization dashboard that lets coding agents onboard your training script and inspect running experiments. It wraps Optuna's TPE sampler in a FastAPI broker with SQLite persistence and a dashboard UI. Study data is exposed through Model Context Protocol tools so your IDE agent can meaningfully participate and advise in the tuning loop.
+
 
 <table border="0">
   <tr>
     <td width="67%" valign="top">
-      <img src="docs/images/dashboard.png" alt="Pathfinder Dashboard" />
+      <img src="docs/images/pathfinder_dashboard_example.png" alt="Pathfinder Dashboard" />
     </td>
     <td width="33%" valign="top">
       <img src="docs/images/pathways_plot.png" alt="Hyperparameter Pathways Plot" style="margin-bottom: 6px;" />
@@ -17,21 +18,23 @@ Pathfinder is an MCP-integrated hyperparameter optimization dashboard that lets 
   </tr>
 </table>
 
-**Designed for:** ML researchers tuning deep learning models on their own hardware (local GPU, Colab, cloud VMs). Connect your training loop in ~60 lines of code.
 
 ## Why Pathfinder?
 
-ML practitioners waste GPU hours on poorly-bounded search spaces and have to manually inspect trial data by grepping logs or refreshing notebooks. Pathfinder gives you a live monitoring dashboard plus an MCP server so your IDE agent can read study state and help onboard new studies. It does not compete with W&B Sweeps or Ray Tune — it's a demonstration of agent-assisted HPO workflows.
+ML practitioners spend varying amounts of time and compute on poorly-bounded search spaces and have to manually inspect trial data by reading logs or refreshing notebooks. Pathfinder offers a live monitoring dashboard plus an MCP server so your IDE agent can read study state and help onboard new studies. 
 
-Three independent layers:
+2 layers:
 
 - **Broker (Optuna TPE)**: Fast, deterministic suggestion engine. Suggestions and pruning happen in <10ms. Workers hit the broker and continue training immediately.
-- **Worker**: Trains autonomously in a loop. Reports metrics per epoch, handles pruning, OOM detection, and checkpointing.
-- **Coordinator (you + optional LLM)**: Run episodic reviews when you decide. Inspect trial history, check search health, propose bounds changes. AI agents (Cursor, Claude Code) can assist via MCP tools.
+- **Worker**: Trains your model autonomously in a loop. Reports metrics per epoch, handles pruning, OOM detection, and checkpointing.
 
-All state lives in **SQLite** — resumable, auditable, portable.
+An MCP server lets coding agents inspect structured study data, validate manifests, and register new studies, only when you ask. The tuning path is never blocked by LLMs.
+
+All state lives in SQLite.
 
 ## Quick Start
+
+
 
 ### Step 1: Start the Broker
 
@@ -51,6 +54,8 @@ pip install -r requirements.txt
 python broker.py --daemon
 # Dashboard: http://127.0.0.1:8000
 ```
+
+
 
 ### Step 2: Connect Your Workers
 
@@ -91,56 +96,71 @@ Point your IDE at the MCP server for agent-driven onboarding and inspection. See
 
 ### Environment Variables Reference
 
-| Variable | Default | Description |
-|---|---|---|
-| `HPO_DATABASE_URL` | `sqlite:///hpo_studies.db` | SQLite connection string. |
-| `HPO_BROKER_URL` | `http://localhost:8000` | URL where the broker is running. Required by workers. |
-| `HPO_STUDY_NAME` | *(none)* | Default study name when not passed explicitly. |
-| `HPO_SECRET_TOKEN` | *(none)* | Bearer token for securing broker endpoints in remote deployments. |
-| `HPO_DEBUG` | `0` | Set to `1` to enable verbose debug logging in the broker. |
-| `HPO_SPARKLINES` | `0` | Set to `1` to print a Unicode performance curve on trial completion. |
-| `HPO_BACKUP_ON_START` | `0` | Set to `1` to run a database backup when the broker starts. |
-| `HPO_CAPTURE_FULL_ENV` | `0` | Set to `1` to capture full `pip freeze` output (default: ML whitelist only). |
-| `HPO_TUNNEL_PROVIDER` | *(none)* | Tunnel provider for remote access: `ngrok` or `cloudflare`. |
-| `HPO_TUNNEL_URL` | *(none)* | Static tunnel URL when using `cloudflare` provider. |
-| `HPO_ALLOWED_ORIGINS` | *(none)* | Additional CORS origins (comma-separated) for the dashboard. |
+
+| Variable               | Default                    | Description                                                                                                 |
+| ---------------------- | -------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `HPO_DATABASE_URL`     | `sqlite:///hpo_studies.db` | SQLite connection string                                                                                    |
+| `HPO_BROKER_URL`       | `http://localhost:8000`    | URL where the broker is running (required)                                                                  |
+| `HPO_STUDY_NAME`       | *(none)*                   | Default study name when not passed explicitly                                                               |
+| `HPO_SECRET_TOKEN`     | *(none)*                   | Bearer token for endpoints in remote deployments                                                            |
+| `HPO_DEBUG`            | `0`                        | Set to `1` to enable verbose debug logging                                                                  |
+| `HPO_SPARKLINES`       | `0`                        | Set to `1` to print a neat performance curve on trial completion :)                                         |
+| `HPO_BACKUP_ON_START`  | `0`                        | Set to `1` to run a database backup when the broker starts.                                                 |
+| `HPO_CAPTURE_FULL_ENV` | `0`                        | Set to `1` to capture all installed packages; default captures only whitelisted core framework dependencies |
+| `HPO_TUNNEL_PROVIDER`  | *(none)*                   | Tunnel provider for remote access: `ngrok` or `cloudflare`                                                  |
+| `HPO_TUNNEL_URL`       | *(none)*                   | Static tunnel URL when using `cloudflare` provider                                                          |
+| `HPO_ALLOWED_ORIGINS`  | *(none)*                   | Additional CORS origins for the dashboard                                                                   |
+
 
 ---
 
+
+
 ## Core Features
+
+
 
 ### Optuna Engine
 
-- **TPE Sampler**: Tree-structured Parzen Estimator — probability-based hyperparameter suggestions that beat grid and random search
+- **Tree-structured Parzen Estimator Sampler**: Probability based hyperparameter suggestions that beat grid and random search
 - **Median Pruning**: Cuts underperforming trials early to save GPU time
 - **Single or Dual-Objective**: Optimize one target, or map a Pareto front between a maximize and a minimize metric (e.g., accuracy vs. loss)
 - **fANOVA Importances**: Identifies which hyperparameters actually matter
+
+
 
 ### Study Health Monitoring
 
 The dashboard and `.hpo_status.json` show a health tier:
 
-| Tier | Meaning |
-|------|---------|
-| `healthy` | Trials are completing, metrics are improving |
-| `watch` | Stagnation or early warning signs |
+
+| Tier        | Meaning                                                 |
+| ----------- | ------------------------------------------------------- |
+| `healthy`   | Trials are completing, metrics are improving            |
+| `watch`     | Stagnation or early warning signs                       |
 | `intervene` | High OOM rate, prolonged stagnation, or 100% prune rate |
 
-Health checks detect stagnation (best score flat-lining) and hardware failure patterns (CUDA OOM on specific batch sizes).
+
+Health checks detect stagnation (flatlining score, loss) and hardware failure patterns (CUDA OOM on specific batch sizes).
 
 ### Persistent SQLite State
 
 All configuration, trials, reviews, and metadata live in `hpo_studies.db`:
+
 - Active search space and HPO config
 - Trial results with VRAM telemetry
-- Coordinator review history
+- Review history
 - Generated model cards
+
+
 
 ### MCP Server
 
 An MCP server (`hpo_mcp_server.py`) exposes structured study data through Model Context Protocol tools so your IDE agent can read study state, validate manifests, and register new studies.
 
 ---
+
+
 
 ## Agent Integration
 
@@ -153,6 +173,8 @@ Pathfinder exposes MCP tools that let your IDE agent (Cursor, Claude Code, Antig
 3. Agent calls `validate_manifest` to check for errors
 4. Agent calls `init_from_manifest` to register the study in Optuna and SQLite
 5. Agent writes a minimal worker script from `templates/worker_minimal.py`
+
+
 
 ### Inspection Flow
 
@@ -168,9 +190,13 @@ See [AGENTS.md](AGENTS.md) for the full agent procedure.
 
 ---
 
+
+
 ## Onboarding Your Own Project
 
-### 1. Write a manifest (`train.hpo.yaml`)
+
+
+### 1. Write a manifest (`train.hpo.yaml`): Manually or have an agent do it for you
 
 ```yaml
 study_name: my_study
@@ -204,6 +230,8 @@ python hpo_cli.py validate train.hpo.yaml
 python hpo_cli.py init train.hpo.yaml
 ```
 
+
+
 ### 3. Update your training script
 
 ```python
@@ -236,7 +264,11 @@ python train.py
 
 ---
 
+
+
 ## IDE Setup (Agent-Driven Onboarding & Inspection)
+
+
 
 ### Cursor
 
@@ -260,9 +292,11 @@ Name: `pathfinder`, Type: `command`, Command: `source .venv/bin/activate && pyth
 }
 ```
 
-Pathfinder is compliant with the Model Context Protocol standard — it works with any MCP-compatible IDE.
+Pathfinder is compliant with the Model Context Protocol standard, it works with any MCP-compatible IDE.
 
 ---
+
+
 
 ## Common Commands
 
@@ -296,28 +330,38 @@ pytest tests/ -q
 
 ---
 
+
+
 ## Limitations
 
-This is not a production HPO framework. It runs on a single machine with SQLite. It does not support distributed studies, Postgres backends, or advanced samplers like MOTPE or CMA-ES. Use Optuna's native dashboard or W&B Sweeps for production workloads. Pathfinder is a demonstration of MCP/agent integration for ML experiment workflows.
+Pathfinder runs on a single machine with SQLite. It does not support Postgres backends or advanced samplers like MOTPE or CMA-ES. This is a demonstration of MCP/agent integration for ML experiment workflows.
 
 ## What I Learned
 
-Building Pathfinder taught me the MCP architecture: how to expose structured tool surfaces so an IDE agent can participate in a tuning loop without blocking the hot path. I learned the lease/reap concurrency pattern for worker lifecycle management — detecting dead workers and reclaiming their trials without false positives. I also gained respect for SQLite as an application database; with WAL mode and careful connection pooling, it handled concurrent broker + dashboard + MCP reads without ever becoming the bottleneck.
+- MCP tool design to inspect telemetry and modify training scripts, refactored the architecture to decouple agentic workflows from deterministic optimization path
+- Implementing concurrency patterns for distributed workers, real-time detection of crashed processes
+- Optimizing SQLite backend performance using Write-Ahead Logging; allowing concurrent broker writes, dashboard rendering, and MCP queries without read-write blocks
 
 ---
+
+
 
 ## Reference: crack-seg
 
-Pathfinder was initially built to tune [crack-seg](https://github.com/Ishaan1402/crack-seg#crack-seg), a U-Net pixel-level segmentation model trained on UAV bridge imagery. The reference implementation (`colab_worker.py`) is preserved in [archive/](archive/). **Do not fork it** for new studies — use `templates/worker_minimal.py` instead.
+Pathfinder was initially built to tune [crack-seg](https://github.com/Ishaan1402/crack-seg#crack-seg), a U-Net pixel-level segmentation model trained on UAV bridge imagery.
 
 ---
+
+
 
 ## Docs
 
-- **[AGENTS.md](AGENTS.md)** — Guide for AI agents (Cursor, Claude Code, Antigravity)
-- **[docs/INTEGRATION.md](docs/INTEGRATION.md)** — Worker integration contract details
+- **[AGENTS.md](AGENTS.md)** — Guide for AI agents (Cursor, Claude Code, Antigravity, etc)
+- **[docs/INTEGRATION.md](docs/INTEGRATION.md)** — Worker integration details
 
 ---
+
+
 
 ## License
 

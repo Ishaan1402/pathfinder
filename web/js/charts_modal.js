@@ -1,3 +1,72 @@
+function openTrialDetails(trialNumber) {
+    trialNumber = Number(trialNumber);
+    const trials = window.HPOState.data.trials || [];
+    const trial = trials.find(t => t.number === trialNumber);
+    if (!trial) return;
+
+    document.getElementById("modal-trial-title").textContent = `Trial #${trial.number}`;
+
+    const paramsEl = document.getElementById("modal-params");
+    if (paramsEl) {
+        const params = trial.params_display || trial.params || {};
+        paramsEl.innerHTML = Object.entries(params)
+            .map(([k, v]) => `<div class="param-item"><div class="param-label">${k}</div><div class="param-value td-mono">${v}</div></div>`)
+            .join("");
+    }
+
+    const oomSection = document.getElementById("modal-oom-section");
+    if (oomSection) {
+        oomSection.style.display = trial.oom_triggered ? "block" : "none";
+    }
+
+    const state = trial.state || "";
+    const titleEl = document.getElementById("modal-rationale-title");
+    if (titleEl) {
+        titleEl.textContent = state === "COMPLETE" ? "Result" : "Status";
+    }
+
+    const reasoningEl = document.getElementById("modal-reasoning");
+    if (reasoningEl) {
+        reasoningEl.textContent = state === "COMPLETE"
+            ? `Completed with ${trial.loss != null ? `loss ${Number(trial.loss).toFixed(4)}` : "unknown loss"} and ${trial.score != null ? `score ${Number(trial.score).toFixed(4)}` : "unknown score"}.`
+            : state === "PRUNED" ? "Pruned by median-rule early stopping." :
+            state === "FAIL" ? `Failed${trial.oom_triggered ? " (Out of Memory)" : ""}.` :
+            "Awaiting results.";
+    }
+
+    const history = trial.history || [];
+    updateModalChart(history);
+
+    const modal = document.getElementById("detail-modal");
+    if (modal) modal.classList.add("active");
+    window.HPOState.ui.isModalOpen = true;
+}
+
+function closeModal(event) {
+    if (event && event.target !== event.currentTarget) return;
+    closeModalDirect();
+}
+
+function closeModalDirect() {
+    const modal = document.getElementById("detail-modal");
+    if (modal) modal.classList.remove("active");
+    window.HPOState.ui.isModalOpen = false;
+    if (window.HPOState.charts.modalHistory.instance) {
+        window.HPOState.charts.modalHistory.instance.destroy();
+        window.HPOState.charts.modalHistory.instance = null;
+    }
+    if (window.HPOState.render.pendingRender) {
+        window.HPOState.render.pendingRender = false;
+        if (window.renderStudyDetails && window.HPOState.data.latestStudyData) {
+            window.renderStudyDetails(window.HPOState.data.latestStudyData);
+        }
+    }
+}
+
+window.openTrialDetails = openTrialDetails;
+window.closeModal = closeModal;
+window.closeModalDirect = closeModalDirect;
+
 function updateModalChart(history) {
     const ctx = document.getElementById("modal-history-chart")?.getContext("2d");
     if (!ctx) return;

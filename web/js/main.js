@@ -1,5 +1,5 @@
 document.addEventListener("DOMContentLoaded", () => {
-    window.initHpoMarks();
+    window.populateStudyList();
     window.syncTopPerformersFilterCheckboxes();
     
     const savedAccentName = localStorage.getItem("hpo_accent_name") || "cyan";

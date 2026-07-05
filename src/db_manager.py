@@ -2,17 +2,14 @@
 import contextlib
 import logging
 import os
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker, Session
 from .schema import Base
-
 from .settings import settings
 
 logger = logging.getLogger(__name__)
 
 DATABASE_URL = settings.database_url
-
-from sqlalchemy import event
 
 connect_args = {}
 if DATABASE_URL.startswith("sqlite"):
@@ -67,10 +64,6 @@ def init_db():
     # Run additive migrations for altered tables
     _apply_additive_migrations()
 
-    # Migrate data from the legacy segmentation_metrics table to trial_results if present.
-    if "segmentation_metrics" in existing_tables:
-        _migrate_segmentation_metrics_to_trial_results()
-
 
 # Additive, idempotent column migrations for tables that predate a new field.
 # Keeps an already-populated SQLite DB from 500ing when the ORM adds a nullable column.
@@ -118,63 +111,6 @@ def _apply_additive_migrations():
                 print(f"Error migrating column {col_name} in {table}: {e}")
 
 
-def _migrate_segmentation_metrics_to_trial_results():
-    from sqlalchemy import inspect, text
-    try:
-        with engine.begin() as conn:
-            # Check if trial_results table exists and is empty
-            res = conn.execute(text("SELECT COUNT(*) FROM trial_results")).fetchone()
-            if res and res[0] > 0:
-                return
-
-            study_name = settings.study_name
-            try:
-                s_res = conn.execute(text("SELECT study_name FROM study_status LIMIT 1")).fetchone()
-                if s_res:
-                    study_name = s_res[0]
-                else:
-                    s_res = conn.execute(text("SELECT study_name FROM study_reviews LIMIT 1")).fetchone()
-                    if s_res:
-                        study_name = s_res[0]
-            except Exception as e:
-                logger.warning(f"Failed to extract study_name during DB migration: {e}")
-
-            inspector = inspect(engine)
-            seg_cols = {c["name"] for c in inspector.get_columns("segmentation_metrics")}
-
-            cols_to_select = []
-            cols_to_insert = []
-
-            mapping = {
-                "trial_id": "trial_id",
-                "epoch_reached": "epoch_reached",
-                "final_dice_score": "primary_score",
-                "final_bce_loss": "primary_loss",
-                "val_loss_history": "score_history_json",
-                "weights_path": "weights_path",
-                "gpu_model": "gpu_model",
-                "max_vram_gb": "max_vram_gb",
-                "oom_triggered": "oom_triggered",
-                "created_at": "created_at"
-            }
-
-            for old_col, new_col in mapping.items():
-                if old_col in seg_cols:
-                    cols_to_select.append(old_col)
-                    cols_to_insert.append(new_col)
-
-            if cols_to_select:
-                select_clause = ", ".join(cols_to_select)
-                insert_clause = ", ".join(cols_to_insert)
-
-                stmt = f"""
-                    INSERT INTO trial_results (study_name, {insert_clause})
-                    SELECT :study_name, {select_clause} FROM segmentation_metrics
-                """
-                conn.execute(text(stmt), {"study_name": study_name})
-                print("Successfully migrated data from segmentation_metrics to trial_results.")
-    except Exception as e:
-        print(f"Error migrating segmentation_metrics data to trial_results: {e}")
 
 
 @contextlib.contextmanager

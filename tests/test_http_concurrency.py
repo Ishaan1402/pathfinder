@@ -50,5 +50,5 @@ def test_expired_lease_can_be_reclaimed_by_new_worker(initialized_study):
     from src.schema import TrialLease
     with get_db_session() as session:
         lease = session.query(TrialLease).filter_by(trial_id=trial_id).first()
-        lease.lease_expires_at = datetime.utcnow() - timedelta(seconds=30)
+        lease.lease_expires_at = datetime.now() - timedelta(seconds=30)
     assert _claim_in_new_session(initialized_study, trial_id, "owner-B") is True

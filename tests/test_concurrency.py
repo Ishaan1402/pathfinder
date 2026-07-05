@@ -4,7 +4,7 @@ Concurrency integration test for the TrialLease system.
 Verifies that multiple concurrent workers each receive unique leased trials,
 and that no trial duplication occurs across simultaneous suggest requests.
 """
-
+# ruff: noqa: E402
 import os
 import sys
 
@@ -31,12 +31,11 @@ import unittest
 import threading
 import uuid
 import optuna
-import json
 from datetime import datetime, timedelta
 from optuna.trial import TrialState
 
 from src.db_manager import init_db, get_db_session
-from src.schema import TrialLease, SystemConfiguration
+from src.schema import TrialLease
 
 
 class TestConcurrencyLeases(unittest.TestCase):
@@ -79,7 +78,7 @@ class TestConcurrencyLeases(unittest.TestCase):
                         trial_id=trial_id,
                         study_name=study_name,
                         leased_to=worker_id,
-                        lease_expires_at=datetime.utcnow() + timedelta(seconds=LEASE_TTL)
+                        lease_expires_at=datetime.now() + timedelta(seconds=LEASE_TTL)
                     )
                     session.add(lease)
                     session.commit()
@@ -132,7 +131,7 @@ class TestConcurrencyLeases(unittest.TestCase):
                 trial_id=trial_a._trial_id,
                 study_name=study_name,
                 leased_to="worker-A",
-                lease_expires_at=datetime.utcnow() - timedelta(seconds=10)
+                lease_expires_at=datetime.now() - timedelta(seconds=10)
             )
             session.add(lease)
             session.commit()
@@ -145,7 +144,7 @@ class TestConcurrencyLeases(unittest.TestCase):
 
             if trial_b._trial_id == trial_a._trial_id:
                 # Same trial recycled — only one lease row should exist
-                matching = [l for l in all_leases if l.trial_id == trial_a._trial_id]
+                matching = [lease for lease in all_leases if lease.trial_id == trial_a._trial_id]
                 self.assertEqual(
                     len(matching), 1,
                     "Recycled trial should have exactly one lease row"
@@ -162,7 +161,7 @@ class TestConcurrencyLeases(unittest.TestCase):
         LEASE_TTL = 300
 
         # Create a lease about to expire (30 seconds remaining)
-        initial_expiry = datetime.utcnow() + timedelta(seconds=30)
+        initial_expiry = datetime.now() + timedelta(seconds=30)
         with get_db_session() as session:
             lease = TrialLease(
                 trial_id=trial._trial_id,
@@ -181,7 +180,7 @@ class TestConcurrencyLeases(unittest.TestCase):
                 leased_to=worker_id
             ).first()
             self.assertIsNotNone(lease, "Lease should exist before heartbeat")
-            lease.lease_expires_at = datetime.utcnow() + timedelta(seconds=LEASE_TTL)
+            lease.lease_expires_at = datetime.now() + timedelta(seconds=LEASE_TTL)
             session.commit()
 
         # Verify lease was extended
@@ -203,7 +202,7 @@ class TestConcurrencyLeases(unittest.TestCase):
         intruder_id = f"worker-intruder-{uuid.uuid4()}"
         trial = study.ask()
 
-        initial_expiry = datetime.utcnow() + timedelta(seconds=60)
+        initial_expiry = datetime.now() + timedelta(seconds=60)
         with get_db_session() as session:
             lease = TrialLease(
                 trial_id=trial._trial_id,
@@ -230,6 +229,56 @@ class TestConcurrencyLeases(unittest.TestCase):
             ).first()
             self.assertIsNotNone(lease)
             self.assertEqual(lease.leased_to, owner_id)
+
+    def test_enqueue_trial_overrides_tpe_categorical(self):
+        """enqueue_trial with partial params overrides suggest_categorical for that param."""
+        study, study_name = self._make_study()
+
+        # Seed first trial to lock the categorical distribution in Optuna
+        trial0 = study.ask()
+        trial0.suggest_categorical("resolution", [256, 512, 1024])
+        trial0.suggest_float("lr", 1e-4, 1e-2, log=True)
+        study.tell(trial0.number, state=TrialState.COMPLETE, values=[0.5, 0.5])
+
+        # Enqueue a trial with resolution=256 (partial fix)
+        study.enqueue_trial({"resolution": 256})
+
+        # The enqueued trial should return 256 for resolution, TPE-sampled for lr
+        trial1 = study.ask()
+        res = trial1.suggest_categorical("resolution", [256, 512, 1024])
+        self.assertEqual(res, 256,
+                         "Enqueued categorical value should override TPE sampling")
+
+        lr = trial1.suggest_float("lr", 1e-4, 1e-2, log=True)
+        self.assertGreaterEqual(lr, 1e-4)
+        self.assertLessEqual(lr, 1e-2)
+
+    def test_multiple_enqueued_trials_consumed_in_order(self):
+        """Multiple enqueued trials are consumed sequentially by ask() calls."""
+        study, study_name = self._make_study()
+
+        # Seed first trial to lock the categorical distribution
+        trial0 = study.ask()
+        trial0.suggest_categorical("resolution", [256, 512, 1024])
+        trial0.suggest_float("lr", 1e-4, 1e-2, log=True)
+        study.tell(trial0.number, state=TrialState.COMPLETE, values=[0.5, 0.5])
+
+        study.enqueue_trial({"resolution": 256})
+        study.enqueue_trial({"resolution": 512})
+
+        # FIFO
+        trial1 = study.ask()
+        res1 = trial1.suggest_categorical("resolution", [256, 512, 1024])
+        self.assertEqual(res1, 256, "First enqueued trial should be consumed first")
+        study.tell(trial1.number, state=TrialState.COMPLETE, values=[0.6, 0.5])
+
+        trial2 = study.ask()
+        res2 = trial2.suggest_categorical("resolution", [256, 512, 1024])
+        self.assertEqual(res2, 512, "Second enqueued trial should be consumed second")
+        study.tell(trial2.number, state=TrialState.COMPLETE, values=[0.6, 0.5])
+
+        self.assertNotEqual(trial1.number, trial2.number,
+                            "Sequential enqueued trials must have distinct trial numbers")
 
 
 if __name__ == "__main__":

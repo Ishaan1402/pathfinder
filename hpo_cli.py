@@ -681,10 +681,14 @@ def cmd_modelcard(args):
         lines.append(f"- GPU Model: {vram.get('gpu_model', 'Unknown')}")
         lines.append(f"- GPU Capacity: {vram.get('gpu_capacity_gb', 'N/A')} GB")
         lines.append(f"- OOM Count: {vram.get('oom_count', 0)}")
-        oom_risk = vram.get("bounds_oom_risk")
-        if oom_risk:
-            lines.append(f"- OOM Risk Level: {oom_risk.get('risk_level', 'N/A')}")
-            lines.append(f"- Predicted Max VRAM: {oom_risk.get('predicted_max_vram_gb', 'N/A'):.2f} GB")
+        oom_trials = vram.get("oom_trials", [])
+        if oom_trials:
+            lines.append("- OOM Trials:")
+            for ot in oom_trials:
+                tid = ot.get("trial_id", "?")
+                peak = ot.get("peak_vram_gb", "N/A")
+                params = ot.get("params", {})
+                lines.append(f"  - Trial {tid}: peak VRAM {peak} GB, params={params}")
         lines.append("")
 
     health = packet.get("health", {})

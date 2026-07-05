@@ -4,9 +4,9 @@ import optuna
 from typing import Dict, Any, List, Optional
 
 from src.db_manager import get_db_session, DATABASE_URL
+from src.schema import SystemConfiguration, StudyStatus
 
 logger = logging.getLogger(__name__)
-from src.schema import SystemConfiguration, StudyStatus
 
 def initialize_study(
     study_name: str,
@@ -18,10 +18,6 @@ def initialize_study(
     directions: Optional[List[str]] = None
 ) -> str:
     """Initializes a new study: creates Optuna study and stores search space, config, context, and source files in DB."""
-    if "config_version" not in hpo_config:
-        hpo_config = dict(hpo_config)
-        hpo_config["config_version"] = 2
-
     try:
         # Create Optuna study
         if multi_objective:

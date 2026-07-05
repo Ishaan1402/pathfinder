@@ -45,9 +45,13 @@ function updateChart(trials, paretoSet, directions) {
             const trialNum = parseInt(match[1], 10);
             const trial = trials.find(t => t.number === trialNum);
             if (trial) {
-                const paramsList = Object.entries(trial.params)
-                    .map(([k, v]) => `${k.replace(/_/g, " ")}: ${typeof v === 'number' && v % 1 !== 0 ? v.toFixed(4) : v}`)
+                const paramKeys = Object.keys(trial.params);
+                const first3 = paramKeys.slice(0, 3)
+                    .map(k => `${k.replace(/_/g, " ")}: ${typeof trial.params[k] === 'number' && trial.params[k] % 1 !== 0 ? trial.params[k].toFixed(4) : trial.params[k]}`)
                     .join(", ");
+                const paramsList = paramKeys.length > 3
+                    ? `${first3}, +${paramKeys.length - 3} more`
+                    : first3;
                 
                 let labelText = `${rawPoint.label} | `;
                 if (isSingleObj) {

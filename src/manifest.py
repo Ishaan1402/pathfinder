@@ -438,7 +438,7 @@ def _manifest_to_hpo_config(data: Dict[str, Any]) -> Dict[str, Any]:
         obj_label = obj.get("label", obj_name)
         if obj_name == primary_score:
             score_label = obj_label
-        elif "loss" in obj_name.lower() or "bce" in obj_name.lower():
+        elif "loss" in obj_name.lower():
             loss_label = obj_label
 
     eval_proto = data.get("eval_protocol", {})
@@ -456,7 +456,6 @@ def _manifest_to_hpo_config(data: Dict[str, Any]) -> Dict[str, Any]:
     max_epoch_jump = rules.get("max_epoch_jump")
 
     hpo_config = {
-        "config_version": 2,
         "metric_loss_label": loss_label,
         "metric_score_label": score_label,
         "eval_protocol": {

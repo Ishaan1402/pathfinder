@@ -186,8 +186,8 @@ def _trial_metric_snapshot(
 
 def get_eval_attr_names(ev: dict) -> tuple[str, str]:
     """Return the score and loss user-attribute names for fixed-eval tracking."""
-    score_fixed_key = ev.get("fixed_score_attr", ev.get("fixed_dice_attr", "score_eval_fixed"))
-    loss_fixed_key = ev.get("fixed_loss_attr", ev.get("fixed_bce_attr", "loss_eval_fixed"))
+    score_fixed_key = ev.get("fixed_score_attr", "score_eval_fixed")
+    loss_fixed_key = ev.get("fixed_loss_attr", "loss_eval_fixed")
     return score_fixed_key, loss_fixed_key
 
 def get_completed_trials(study) -> List[FrozenTrial]:

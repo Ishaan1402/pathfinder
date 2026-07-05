@@ -25,6 +25,17 @@ async function populateStudyList() {
                     if (study === activeStudy) opt.selected = true;
                     select.appendChild(opt);
                 });
+                if (!activeStudy && studiesToShow.length > 0) {
+                    select.value = studiesToShow[0];
+                    window.HPOState.session.studyName = studiesToShow[0];
+                    const url = new URL(window.location);
+                    url.searchParams.set('study', studiesToShow[0]);
+                    window.history.pushState({}, '', url);
+                    window.fetchStudyDetails();
+                    window.fetchHpoConfig();
+                    window.fetchSearchSpace();
+                    window.fetchFanova();
+                }
             }
         }
     } catch (err) {
@@ -33,6 +44,7 @@ async function populateStudyList() {
 }
 
 async function fetchStudyDetails(throwOnError = false) {
+    if (!window.HPOState.session.studyName) return;
     try {
         const res = await fetch(`/api/study_details?study_name=${window.HPOState.session.studyName}`);
         if (!res.ok) {
@@ -42,11 +54,7 @@ async function fetchStudyDetails(throwOnError = false) {
         const data = await res.json();
         window.HPOState.data.latestStudyData = data;
 
-        const completedCount = data.trials.filter(t => t.state === "COMPLETE" || t.state === "FAIL" || t.state === "PRUNED").length;
-        if (window.HPOState.telemetry.lastCompletedCount !== null && completedCount !== window.HPOState.telemetry.lastCompletedCount) {
-            window.HPOState.ui.reviewPillDismissed = false;
-        }
-        window.HPOState.telemetry.lastCompletedCount = completedCount;
+        window.HPOState.telemetry.lastCompletedCount = data.trials.filter(t => t.state === "COMPLETE" || t.state === "FAIL" || t.state === "PRUNED").length;
 
         const select = document.getElementById("study-select");
         if (select) select.value = data.study_name;
@@ -58,8 +66,6 @@ async function fetchStudyDetails(throwOnError = false) {
         window.HPOState.data.review = data.review || null;
         const nComplete = data.completed_count ?? data.trials.filter((t) => t.state === "COMPLETE").length;
         updateStatConfidenceBanner(data.statistical_confidence || "low", nComplete);
-        renderPastReviews(data.past_reviews || []);
-        applyReviewUi();
         updateAnalysisStatusTicker();
 
         syncTelemetryFromTrials([...data.trials].sort((a, b) => b.number - a.number));
@@ -76,6 +82,7 @@ async function fetchStudyDetails(throwOnError = false) {
 }
 
 async function fetchHpoConfig() {
+    if (!window.HPOState.session.studyName) return;
     const studyName = window.HPOState.session.studyName || '';
     try {
         const res = await fetch(`/api/hpo_config?study_name=${encodeURIComponent(studyName)}`);
@@ -89,6 +96,7 @@ async function fetchHpoConfig() {
 }
 
 async function fetchSearchSpace() {
+    if (!window.HPOState.session.studyName) return;
     const studyName = window.HPOState.session.studyName || '';
     try {
         const res = await fetch(`/api/search_space?study_name=${encodeURIComponent(studyName)}`);
@@ -96,7 +104,6 @@ async function fetchSearchSpace() {
         window.HPOState.data.activeSearchSpace = await res.json();
         renderSearchSpace();
         renderDashboardSearchSpaceSummary();
-        fetchPendingChanges();
         if (window.HPOState.data.latestStudyData) {
             renderStudyDetails(window.HPOState.data.latestStudyData);
         }
@@ -106,6 +113,7 @@ async function fetchSearchSpace() {
 }
 
 async function fetchFanova() {
+    if (!window.HPOState.session.studyName) return;
     try {
         const res = await fetch(`/api/fanova?study_name=${window.HPOState.session.studyName}`);
         if (!res.ok) return;

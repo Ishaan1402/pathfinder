@@ -1,4 +1,4 @@
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any
 from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP("Pathfinder")
@@ -15,10 +15,20 @@ def get_study_data(study_name: str) -> Dict[str, Any]:
 
 
 @mcp.tool()
-def get_study_cards(study_name: Optional[str] = None) -> List[Dict[str, Any]]:
+def get_study_cards(study_name: Optional[str] = None) -> Dict[str, Any]:
     """Retrieves generated study cards (model cards, recaps) from the database to enable cross-study queries."""
     from src.analytics import load_study_cards
-    return load_study_cards(study_name)
+
+    if study_name is not None:
+        import optuna
+        from src.db_manager import DATABASE_URL
+        try:
+            optuna.load_study(study_name=study_name, storage=DATABASE_URL)
+        except KeyError:
+            return {"success": False, "error": f"Study '{study_name}' not found."}
+
+    cards = load_study_cards(study_name)
+    return {"success": True, "cards": cards}
 
 
 @mcp.tool()
@@ -61,10 +71,14 @@ def init_from_manifest(yaml_str: str, force: bool = False) -> Dict[str, Any]:
 
 
 @mcp.tool()
-def export_manifest(study_name: str) -> str:
+def export_manifest(study_name: str) -> Dict[str, Any]:
     """Export the active search space, HPO config, and context of an existing study as a valid manifest YAML string."""
     from src.manifest import export_manifest_yaml
-    return export_manifest_yaml(study_name)
+    try:
+        result = export_manifest_yaml(study_name)
+        return {"success": True, "yaml_str": result}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 
 # --- MCP PROMPT RESOURCES ---

@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 import os
 import sys
 
@@ -25,7 +26,7 @@ import optuna
 from optuna.trial import TrialState
 
 from src.db_manager import init_db, get_db_session
-from src.schema import TrialResult, StudyStatus
+from src.schema import TrialResult
 from src.health import compute_health_tier
 
 

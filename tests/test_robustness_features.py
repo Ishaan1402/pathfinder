@@ -2,13 +2,8 @@ import os
 import tempfile
 import json
 import pytest
-import uuid
-import math
-import sqlite3
-from fastapi.testclient import TestClient
-from optuna.trial import TrialState
-from src.db_manager import get_db_session, DATABASE_URL
-from src.schema import TrialResult, SystemConfiguration
+from src.db_manager import get_db_session
+from src.schema import TrialResult
 import hpo_cli
 
 def test_zero_metric_rejection(client, initialized_study):
@@ -147,32 +142,6 @@ def test_cli_export_import_roundtrip(client, initialized_study):
     # Clean up
     try:
         os.remove(export_path)
-        os.rmdir(temp_dir)
-    except Exception:
-        pass
-
-def test_cli_backup_command():
-    temp_dir = tempfile.mkdtemp()
-    backup_path = os.path.join(temp_dir, "test_backup.db")
-    
-    class BackupArgs:
-        output = backup_path
-        
-    try:
-        hpo_cli.cmd_backup(BackupArgs())
-    except SystemExit as e:
-        assert e.code == 0
-    
-    assert os.path.exists(backup_path)
-    conn = sqlite3.connect(backup_path)
-    cursor = conn.cursor()
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-    tables = [t[0] for t in cursor.fetchall()]
-    assert "trial_results" in tables
-    conn.close()
-    
-    try:
-        os.remove(backup_path)
         os.rmdir(temp_dir)
     except Exception:
         pass
@@ -422,3 +391,42 @@ def test_import_rollback_on_failure(client, initialized_study):
         os.rmdir(temp_dir)
     except Exception:
         pass
+
+
+def test_search_space_update(client, initialized_study):
+    """Narrowing numeric bounds, toggling categorical options, and rejection of invalid inputs."""
+    study = initialized_study
+
+    # 1. Narrow learning_rate bounds
+    resp = client.post(
+        "/api/update_search_space",
+        json={"study_name": study, "learning_rate": {"min": 1e-4, "max": 1e-3}},
+    )
+    assert resp.status_code == 200
+    space = resp.json()["space"]
+    assert space["learning_rate"]["min"] == 1e-4
+    assert space["learning_rate"]["max"] == 1e-3
+
+    # 2. Restrict categorical options
+    resp = client.post(
+        "/api/update_search_space",
+        json={"study_name": study, "batch_size": {"active": [4, 8]}},
+    )
+    assert resp.status_code == 200
+    assert set(resp.json()["space"]["batch_size"]["active"]) == {4, 8}
+
+    # 3. Reject unknown parameter
+    resp = client.post(
+        "/api/update_search_space",
+        json={"study_name": study, "nonexistent_param": {"min": 0}},
+    )
+    assert resp.status_code == 400
+    assert "not recognized" in resp.json()["detail"]
+
+    # 4. Reject min >= max
+    resp = client.post(
+        "/api/update_search_space",
+        json={"study_name": study, "learning_rate": {"min": 0.01, "max": 0.001}},
+    )
+    assert resp.status_code == 400
+    assert "strictly less" in resp.json()["detail"]

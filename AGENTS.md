@@ -72,6 +72,10 @@ When the user asks about study progress, trial results, or health:
 1. Call `get_study_data(study_name)` to retrieve trial telemetry, health tier, fANOVA importances, best trials, and OOM patterns.
 2. Summarize: current best score, health status, stagnation indicators, and any OOM warnings.
 3. If health is `watch` or `intervene`, explain the reason and offer to explore the data further.
+4. If `vram_telemetry.oom_count > 0`, inspect the `oom_trials` list:
+   - Cluster OOM trials by shared hyperparameters (e.g. "all OOM trials used resolution=1024 and batch_size >= 16")
+   - Compare peak VRAM values to `gpu_capacity_gb` — how close is the margin?
+   - Recommend narrowing the search space bounds for the offending parameter(s)
 
 ## IDE triggers & status polling (.hpo_status.json)
 
@@ -87,5 +91,4 @@ When a completed trial is reported or the background daemon polls health, the sy
 - Never block the GPU worker on an LLM; the suggest path stays TPE.
 - Never auto-invoke the coordinator from the broker, dashboard, or a hook - only on user request.
 - Do not write/modify local JSON files for search space or configuration (e.g. `active_search_space.json`, `hpo_config.json`); state must reside in SQLite.
-- Do not modify the root `colab_worker.py` unless the user owns the bridge-crack project. Cloners use `templates/`.
-- Never modify `archive/` files — they are historical reference only.
+- Cloners use `templates/`. Do not generate project-specific workers at the repo root.
