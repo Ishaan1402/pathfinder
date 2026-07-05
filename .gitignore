@@ -46,3 +46,7 @@ studies/
 # Default database location
 .data/
 
+# Personal study manifests and worker scripts
+train_*.yaml
+colab_worker.py
+
