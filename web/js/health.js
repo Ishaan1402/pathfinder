@@ -27,8 +27,8 @@ function updateAnalysisStatusTicker() {
     const text = messages.map((m) => m.toUpperCase()).join(separator) + separator;
     ticker.className = `analysis-status-ticker tier-${displayTier}`;
     ticker.dataset.tier = displayTier;
-    [text, text].forEach((segment) => track.appendChild(Object.assign(document.createElement("span"), { className: "ticker-segment", textContent: segment })));
-    track.style.setProperty("--ticker-duration", `${Math.max(20, Math.min(45, text.length * 0.28))}s`);
+    [text, text, text, text].forEach((segment) => track.appendChild(Object.assign(document.createElement("span"), { className: "ticker-segment", textContent: segment })));
+    track.style.setProperty("--ticker-duration", `${Math.max(8, Math.min(30, text.length * 0.22))}s`);
 }
 
 async function checkStudyHealth(throwOnError = false) {
