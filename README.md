@@ -1,14 +1,21 @@
-# Pathfinder
+# Pathfinder &emsp; [![Build Status](https://github.com/Ishaan1402/pathfinder/actions/workflows/integration.yml/badge.svg)](https://github.com/Ishaan1402/pathfinder/actions) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
 
-[Build Status](https://github.com/Ishaan1402/pathfinder/actions)
-[License: MIT](LICENSE)
+---
 
 Your coding agents architect training pipelines, but the optimization loop still runs completely out of their sight. Pathfinder brings that loop back in view.
 
 
-|     |     |
-| --- | --- |
-|     |     |
+<table border="0">
+  <tr>
+    <td width="67%" valign="top">
+      <img src="docs/images/pathfinder_dashboard_example.png" alt="Pathfinder Dashboard" />
+    </td>
+    <td width="33%" valign="top">
+      <img src="docs/images/pathways_plot.png" alt="Hyperparameter Pathways Plot" style="margin-bottom: 6px;" />
+      <img src="docs/images/pruning_timeline.png" alt="Pruning Timeline" />
+    </td>
+  </tr>
+</table>
 
 
 
