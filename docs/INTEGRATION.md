@@ -146,13 +146,7 @@ That is the entire contract:
 > - Pass your lower-is-better metric (e.g. Cross-Entropy, Perplexity, MAE) as `loss`.
 > - You can customize their display names on the UI dashboard under **Settings > Eval protocol** by setting "Loss metric display name" and "Score metric display name".
 
-## 5. Create the study and validate
-
-Call the MCP `init_from_manifest` tool (or CLI `init`) to create the Optuna study and seed
-configuration options from your manifest file. Use the `/health` broker endpoint to verify
-connectivity.
-
-## 6. CLI operations
+## 5. CLI operations
 
 Pathfinder ships a command-line interface (`hpo_cli.py`) for database operations.
 
@@ -211,6 +205,15 @@ python hpo_cli.py delete my_study
 
 Permanently removes a study and all its data from the database. Requires confirmation.
 
+### Export study config to manifest
+
+```bash
+python hpo_cli.py manifest my_study
+```
+
+Exports the active study configuration (search space, objectives, eval protocol) back to
+a valid manifest YAML. Useful for snapshots or migrating configs between studies.
+
 ### Backup the database
 
 ```bash
@@ -220,7 +223,7 @@ python hpo_cli.py backup --output backup.db
 Creates a point-in-time snapshot of the full SQLite database using SQLite's online backup API.
 Safe to run while the broker is running.
 
-## 7. Environment variables
+## 6. Environment variables
 
 | Variable | Default | Description |
 |---|---|---|---|
@@ -236,7 +239,7 @@ Safe to run while the broker is running.
 | `HPO_TUNNEL_URL` | *(none)* | Static tunnel URL when using `cloudflare` provider. |
 | `HPO_ALLOWED_ORIGINS` | *(none)* | Additional CORS origins (comma-separated) for the dashboard. |
 
-## 8. Validation guardrails schema
+## 7. Validation guardrails schema
 
 `validation_rules` can be set in the manifest YAML or via **Settings > Eval protocol >
 Metric guardrails** in the dashboard.

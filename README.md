@@ -1,51 +1,32 @@
 # Pathfinder
 
-[![Build Status](https://github.com/Ishaan1402/pathfinder/actions/workflows/integration.yml/badge.svg)](https://github.com/Ishaan1402/pathfinder/actions)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
+[Build Status](https://github.com/Ishaan1402/pathfinder/actions)
+[License: MIT](LICENSE)
 
-Pathfinder is an MCP-integrated hyperparameter optimization dashboard that lets coding agents onboard your training script and inspect running experiments. It wraps Optuna's TPE sampler in a FastAPI broker with SQLite persistence and a dashboard UI. Study data is exposed through Model Context Protocol tools so your IDE agent can meaningfully participate and advise in the tuning loop.
-
-
-<table border="0">
-  <tr>
-    <td width="67%" valign="top">
-      <img src="docs/images/pathfinder_dashboard_example.png" alt="Pathfinder Dashboard" />
-    </td>
-    <td width="33%" valign="top">
-      <img src="docs/images/pathways_plot.png" alt="Hyperparameter Pathways Plot" style="margin-bottom: 6px;" />
-      <img src="docs/images/pruning_timeline.png" alt="Pruning Timeline" />
-    </td>
-  </tr>
-</table>
+Your coding agents architect training pipelines, but the optimization loop still runs completely out of their sight. Pathfinder brings that loop back in view.
 
 
-## Why Pathfinder?
+|     |     |
+| --- | --- |
+|     |     |
 
-ML practitioners spend varying amounts of time and compute on poorly-bounded search spaces and have to manually inspect trial data by reading logs or refreshing notebooks. Pathfinder offers a live monitoring dashboard plus an MCP server so your IDE agent can read study state and help onboard new studies. 
+
+
+
+## How it works
 
 2 layers:
 
-- **Broker (Optuna TPE)**: Fast, deterministic suggestion engine. Suggestions and pruning happen in <10ms. Workers hit the broker and continue training immediately.
-- **Worker**: Trains your model autonomously in a loop. Reports metrics per epoch, handles pruning, OOM detection, and checkpointing.
+- **Broker (FastAPI + Optuna TPE)**: Suggests hyperparameters in <10ms, prunes underperforming trials, and flags study health issues (stagnation, OOM patterns, 100% prune rates)
+- **Worker**: Runs your training script in a loop. Calls `suggest`, `report_epoch`, `complete`. Reports VRAM telemetry and handles OOMs without crashing the study.
 
-An MCP server lets coding agents inspect structured study data, validate manifests, and register new studies, only when you ask. The tuning path is never blocked by LLMs.
-
-All state lives in SQLite.
+An MCP server gives your IDE agent read-only visibility into trial history, health tiers, and fANOVA importances. The agent can validate manifests and register new studies, only when you ask. The worker never waits on an LLM.
 
 ## Quick Start
 
 
 
 ### Step 1: Start the Broker
-
-**Option A: Docker (zero-install)**
-
-```bash
-docker-compose up -d
-# Dashboard: http://127.0.0.1:8000
-```
-
-**Option B: Local Python (3.10+)**
 
 ```bash
 python3 -m venv .venv
@@ -55,7 +36,7 @@ python broker.py --daemon
 # Dashboard: http://127.0.0.1:8000
 ```
 
-
+Using the dashboard is optional; CLI and your IDE agent can do everything.
 
 ### Step 2: Connect Your Workers
 
@@ -90,83 +71,17 @@ python train.py
 
 See [docs/INTEGRATION.md](docs/INTEGRATION.md) for more tunneling and auth options.
 
-### Step 3: Agent Integration (optional)
+### Step 3: Connect Your Agent
 
 Point your IDE at the MCP server for agent-driven onboarding and inspection. See [IDE Setup](#ide-setup-agent-driven-onboarding--inspection).
 
-### Environment Variables Reference
-
-
-| Variable               | Default                    | Description                                                                                                 |
-| ---------------------- | -------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `HPO_DATABASE_URL`     | `sqlite:///hpo_studies.db` | SQLite connection string                                                                                    |
-| `HPO_BROKER_URL`       | `http://localhost:8000`    | URL where the broker is running (required)                                                                  |
-| `HPO_STUDY_NAME`       | *(none)*                   | Default study name when not passed explicitly                                                               |
-| `HPO_SECRET_TOKEN`     | *(none)*                   | Bearer token for endpoints in remote deployments                                                            |
-| `HPO_DEBUG`            | `0`                        | Set to `1` to enable verbose debug logging                                                                  |
-| `HPO_SPARKLINES`       | `0`                        | Set to `1` to print a neat performance curve on trial completion :)                                         |
-| `HPO_BACKUP_ON_START`  | `0`                        | Set to `1` to run a database backup when the broker starts.                                                 |
-| `HPO_CAPTURE_FULL_ENV` | `0`                        | Set to `1` to capture all installed packages; default captures only whitelisted core framework dependencies |
-| `HPO_TUNNEL_PROVIDER`  | *(none)*                   | Tunnel provider for remote access: `ngrok` or `cloudflare`                                                  |
-| `HPO_TUNNEL_URL`       | *(none)*                   | Static tunnel URL when using `cloudflare` provider                                                          |
-| `HPO_ALLOWED_ORIGINS`  | *(none)*                   | Additional CORS origins for the dashboard                                                                   |
-
-
----
-
-
-
-## Core Features
-
-
-
-### Optuna Engine
-
-- **Tree-structured Parzen Estimator Sampler**: Probability based hyperparameter suggestions that beat grid and random search
-- **Median Pruning**: Cuts underperforming trials early to save GPU time
-- **Single or Dual-Objective**: Optimize one target, or map a Pareto front between a maximize and a minimize metric (e.g., accuracy vs. loss)
-- **fANOVA Importances**: Identifies which hyperparameters actually matter
-
-
-
-### Study Health Monitoring
-
-The dashboard and `.hpo_status.json` show a health tier:
-
-
-| Tier        | Meaning                                                 |
-| ----------- | ------------------------------------------------------- |
-| `healthy`   | Trials are completing, metrics are improving            |
-| `watch`     | Stagnation or early warning signs                       |
-| `intervene` | High OOM rate, prolonged stagnation, or 100% prune rate |
-
-
-Health checks detect stagnation (flatlining score, loss) and hardware failure patterns (CUDA OOM on specific batch sizes).
-
-### Persistent SQLite State
-
-All configuration, trials, reviews, and metadata live in `hpo_studies.db`:
-
-- Active search space and HPO config
-- Trial results with VRAM telemetry
-- Review history
-- Generated model cards
-
-
-
-### MCP Server
-
-An MCP server (`hpo_mcp_server.py`) exposes structured study data through Model Context Protocol tools so your IDE agent can read study state, validate manifests, and register new studies.
-
----
-
-
+Environment variables are documented in [docs/INTEGRATION.md](docs/INTEGRATION.md).
 
 ## Agent Integration
 
 Pathfinder exposes MCP tools that let your IDE agent (Cursor, Claude Code, Antigravity) participate in two workflows:
 
-### Onboarding Flow
+### Onboarding
 
 1. Agent reads your training script, identifies tunable hyperparameters and metrics
 2. Agent drafts a `train.hpo.yaml` manifest
@@ -176,15 +91,17 @@ Pathfinder exposes MCP tools that let your IDE agent (Cursor, Claude Code, Antig
 
 
 
-### Inspection Flow
+### Inspection
 
-1. Agent calls `get_study_data` to retrieve trial telemetry, health tier, fANOVA importances, and best trials
+1. Agent calls `get_study_data` to retrieve trial telemetry, health tier, fANOVA importances, and trial data
 2. Agent summarizes: current best score, health status, OOM rate, stagnation warnings
-3. Search space adjustments happen through the dashboard Settings UI or `hpo_cli.py`
+3. Recommended search space adjustments happen by you through the dashboard Settings UI or `hpo_cli.py`
 
 Key MCP tools: `validate_manifest`, `init_from_manifest`, `get_study_data`, `get_study_cards`, `export_manifest`.
 
-Trigger phrases: say **"integrate HPO"** or **"wire hyperparameter tuning"** and your agent will walk through the onboarding flow. For inspection, say **"show study health"** or **"check HPO progress."**
+Trigger phrases: say **"integrate HPO"** or **"wire hyperparameter tuning"** to onboard. Say **"show study health"** or **"check HPO progress"** to inspect.
+
+Ask it anything about your experiment; it has full context on trial history, health, and importances.
 
 See [AGENTS.md](AGENTS.md) for the full agent procedure.
 
@@ -266,7 +183,7 @@ python train.py
 
 
 
-## IDE Setup (Agent-Driven Onboarding & Inspection)
+## IDE Setup
 
 
 
@@ -332,15 +249,11 @@ pytest tests/ -q
 
 
 
-## Limitations
-
-Pathfinder runs on a single machine with SQLite. It does not support Postgres backends or advanced samplers like MOTPE or CMA-ES. This is a demonstration of MCP/agent integration for ML experiment workflows.
-
-## What I Learned
+## Dev Notes
 
 - MCP tool design to inspect telemetry and modify training scripts, refactored the architecture to decouple agentic workflows from deterministic optimization path
-- Implementing concurrency patterns for distributed workers, real-time detection of crashed processes
-- Optimizing SQLite backend performance using Write-Ahead Logging; allowing concurrent broker writes, dashboard rendering, and MCP queries without read-write blocks
+- Implemented concurrency patterns for distributed workers, real-time detection of crashed processes
+- Optimized SQLite backend performance using Write-Ahead Logging; allowing concurrent broker writes, dashboard rendering, and MCP queries without read-write blocks
 
 ---
 
