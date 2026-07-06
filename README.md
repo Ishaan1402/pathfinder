@@ -1,22 +1,16 @@
 # Pathfinder
 
-[![Build Status](https://github.com/Ishaan1402/pathfinder/actions/workflows/integration.yml/badge.svg)](https://github.com/Ishaan1402/pathfinder/actions)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
+[Build Status](https://github.com/Ishaan1402/pathfinder/actions)
+[License: MIT](LICENSE)
 
 Your coding agents architect training pipelines, but the optimization loop still runs completely out of their sight. Pathfinder brings that loop back in view.
 
 
-<table border="0">
-  <tr>
-    <td width="67%" valign="top">
-      <img src="docs/images/pathfinder_dashboard_example.png" alt="Pathfinder Dashboard" />
-    </td>
-    <td width="33%" valign="top">
-      <img src="docs/images/pathways_plot.png" alt="Hyperparameter Pathways Plot" style="margin-bottom: 6px;" />
-      <img src="docs/images/pruning_timeline.png" alt="Pruning Timeline" />
-    </td>
-  </tr>
-</table>
+|     |     |
+| --- | --- |
+|     |     |
+
+
 
 
 ## How it works
@@ -42,7 +36,7 @@ python broker.py --daemon
 # Dashboard: http://127.0.0.1:8000
 ```
 
-
+Using the dashboard is optional; CLI and your IDE agent can do everything.
 
 ### Step 2: Connect Your Workers
 
@@ -81,14 +75,13 @@ See [docs/INTEGRATION.md](docs/INTEGRATION.md) for more tunneling and auth optio
 
 Point your IDE at the MCP server for agent-driven onboarding and inspection. See [IDE Setup](#ide-setup-agent-driven-onboarding--inspection).
 
-
 Environment variables are documented in [docs/INTEGRATION.md](docs/INTEGRATION.md).
 
 ## Agent Integration
 
 Pathfinder exposes MCP tools that let your IDE agent (Cursor, Claude Code, Antigravity) participate in two workflows:
 
-### Onboarding 
+### Onboarding
 
 1. Agent reads your training script, identifies tunable hyperparameters and metrics
 2. Agent drafts a `train.hpo.yaml` manifest
@@ -103,7 +96,6 @@ Pathfinder exposes MCP tools that let your IDE agent (Cursor, Claude Code, Antig
 1. Agent calls `get_study_data` to retrieve trial telemetry, health tier, fANOVA importances, and trial data
 2. Agent summarizes: current best score, health status, OOM rate, stagnation warnings
 3. Recommended search space adjustments happen by you through the dashboard Settings UI or `hpo_cli.py`
-
 
 Key MCP tools: `validate_manifest`, `init_from_manifest`, `get_study_data`, `get_study_cards`, `export_manifest`.
 
@@ -191,7 +183,7 @@ python train.py
 
 
 
-## IDE Setup 
+## IDE Setup
 
 
 
