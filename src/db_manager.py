@@ -85,6 +85,11 @@ _ADDITIVE_COLUMNS = {
 
 
 def _apply_additive_migrations():
+    """Deliberately additive-only (no down-migrations, no version table).
+
+    Sufficient for solo-dev column additions.  Alembic would be the upgrade path for
+    multi-contributor development or type-altering/restructuring migrations.
+    """
     from sqlalchemy import inspect, text
 
     try:

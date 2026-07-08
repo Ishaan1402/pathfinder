@@ -48,5 +48,7 @@ studies/
 
 # Personal study manifests and worker scripts
 train_*.yaml
+*.hpo.yaml
+bridge_crack_unet_v2.yaml
 colab_worker.py
 

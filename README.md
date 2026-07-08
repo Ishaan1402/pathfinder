@@ -100,11 +100,11 @@ Pathfinder exposes MCP tools that let your IDE agent (Cursor, Claude Code, Antig
 
 ### Inspection
 
-1. Agent calls `get_study_data` to retrieve trial telemetry, health tier, fANOVA importances, and trial data
+1. Agent reads the `hpo://studies/{name}/packet` resource to retrieve trial telemetry, health tier, fANOVA importances, and trial data
 2. Agent summarizes: current best score, health status, OOM rate, stagnation warnings
 3. Recommended search space adjustments happen by you through the dashboard Settings UI or `hpo_cli.py`
 
-Key MCP tools: `validate_manifest`, `init_from_manifest`, `get_study_data`, `get_study_cards`, `export_manifest`.
+Key MCP tools: `validate_manifest`, `init_from_manifest`. Data is retrieved via resources (`hpo://studies/{name}/packet`, `hpo://studies/{name}/cards`).
 
 Trigger phrases: say **"integrate HPO"** or **"wire hyperparameter tuning"** to onboard. Say **"show study health"** or **"check HPO progress"** to inspect.
 
@@ -209,7 +209,7 @@ Name: `pathfinder`, Type: `command`, Command: `source .venv/bin/activate && pyth
       "command": "python3",
       "args": ["hpo_mcp_server.py"],
       "env": {
-        "HPO_DATABASE_URL": "sqlite:///./hpo_studies.db"
+        "HPO_DATABASE_URL": "sqlite:///./.data/hpo_studies.db"
       }
     }
   }
@@ -258,7 +258,7 @@ pytest tests/ -q
 
 ## Dev Notes
 
-- MCP tool design to inspect telemetry and modify training scripts, refactored the architecture to decouple agentic workflows from deterministic optimization path
+- MCP chosen over CLI invocation for IDE-agent integration because typed auto-discovery (tools with schemas, resources with URI templates) provides a better contract than agents string-matching CLI output
 - Implemented concurrency patterns for distributed workers, real-time detection of crashed processes
 - Optimized SQLite backend performance using Write-Ahead Logging; allowing concurrent broker writes, dashboard rendering, and MCP queries without read-write blocks
 
