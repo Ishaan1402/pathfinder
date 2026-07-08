@@ -55,7 +55,7 @@ The worker contract is exactly three calls; full reference in `docs/INTEGRATION.
 
 ### Statistical confidence (caveat, not a gate)
 
-`get_study_data` includes `statistical_confidence` derived from completed-trial count:
+The `hpo://studies/{name}/packet` resource includes `statistical_confidence` derived from completed-trial count:
 
 | Tier | Completed trials | Agent behavior |
 |------|------------------|----------------|
@@ -69,7 +69,7 @@ Reviews are never hard-blocked at low confidence — the dashboard shows a banne
 
 When the user asks about study progress, trial results, or health:
 
-1. Call `get_study_data(study_name)` to retrieve trial telemetry, health tier, fANOVA importances, best trials, and OOM patterns.
+1. Read the `hpo://studies/{name}/packet` resource to retrieve trial telemetry, health tier, fANOVA importances, best trials, and OOM patterns.
 2. Summarize: current best score, health status, stagnation indicators, and any OOM warnings.
 3. If health is `watch` or `intervene`, explain the reason and offer to explore the data further.
 4. If `vram_telemetry.oom_count > 0`, inspect the `oom_trials` list:
@@ -84,7 +84,6 @@ When a completed trial is reported or the background daemon polls health, the sy
 **Agent Action (Cursor, Antigravity, and Claude Code)**:
 * Eagerly check for the existence of `.hpo_status.json` in the project root.
 * If `health_tier` is `"watch"` or `"intervene"`, immediately notify the user in your first response, explain the `health_reason`, and proactively offer to inspect the study data.
-* Offer to use the `/goal` slash command to help coordinate and automate resolution of search space stagnation or failures.
 
 ## Guardrails (always)
 
