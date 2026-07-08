@@ -128,26 +128,44 @@ def run_training_worker(
         val_history = []
         final_score = 0.0
         final_loss = 999.0
+        final_score_fixed = 0.0
+        final_loss_fixed = 999.0
         pruned = False
         
+        # Prepare parameters for fixed resolution evaluation (fixed at 512px)
+        params_fixed = dict(params)
+        params_fixed["resolution"] = 512
+
         # 2. Run Epoch training loop
         for epoch in range(1, epochs_per_trial + 1):
             # Simulate training/val forward pass
             score, loss = simulate_training_epoch(epoch, params)
-            val_history.append({"epoch": epoch, "score": score, "loss": loss})
+            score_fixed, loss_fixed = simulate_training_epoch(epoch, params_fixed)
             
-            print(f"  Epoch {epoch:02d}/{epochs_per_trial:02d} | Score: {score:.4f} | Loss: {loss:.4f}")
+            val_history.append({
+                "epoch": epoch,
+                "score": score,
+                "loss": loss,
+                "score_eval_fixed": score_fixed,
+                "loss_eval_fixed": loss_fixed
+            })
+            
+            print(f"  Epoch {epoch:02d}/{epochs_per_trial:02d} | Score (train): {score:.4f} | Loss: {loss:.4f} | Score (fixed eval @512px): {score_fixed:.4f}")
             
             # Record final metrics
             final_score = score
             final_loss = loss
+            final_score_fixed = score_fixed
+            final_loss_fixed = loss_fixed
             
             # 3. Intermediate epoch reporting & pruning evaluation
             try:
                 should_prune = session.report_epoch(
                     epoch=epoch,
                     score=score,
-                    loss=loss
+                    loss=loss,
+                    score_eval_fixed=score_fixed,
+                    loss_eval_fixed=loss_fixed
                 )
             except Exception as rep_err:
                 print(f"Error reporting epoch: {rep_err}")
@@ -162,6 +180,8 @@ def run_training_worker(
                         epoch=epoch,
                         score=score,
                         loss=loss,
+                        score_eval_fixed=score_fixed,
+                        loss_eval_fixed=loss_fixed,
                         state="PRUNED"
                     )
                 except Exception as prune_err:
@@ -179,6 +199,8 @@ def run_training_worker(
                     epoch=epochs_per_trial,
                     score=final_score,
                     loss=final_loss,
+                    score_eval_fixed=final_score_fixed,
+                    loss_eval_fixed=final_loss_fixed,
                     weights_path=weights_path,
                     history=val_history,
                     state="COMPLETE"
@@ -191,5 +213,17 @@ def run_training_worker(
 
 
 if __name__ == "__main__":
-    # Runs a default study local simulation of 5 trials
-    run_training_worker(study_name="unet_crack_segmentation", max_trials=5)
+    import argparse
+    parser = argparse.ArgumentParser(description="Simulated Pathfinder Training Worker")
+    parser.add_argument("--study_name", default="unet_crack_segmentation", help="Study name")
+    parser.add_argument("--max_trials", type=int, default=5, help="Number of trials to run")
+    parser.add_argument("--epochs_per_trial", type=int, default=10, help="Epochs per trial")
+    parser.add_argument("--broker_url", default=None, help="Broker URL")
+    args = parser.parse_args()
+
+    run_training_worker(
+        study_name=args.study_name,
+        max_trials=args.max_trials,
+        epochs_per_trial=args.epochs_per_trial,
+        broker_url=args.broker_url
+    )
