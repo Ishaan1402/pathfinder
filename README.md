@@ -266,7 +266,7 @@ pytest tests/ -q
 
 
 
-## Ops (personal use)
+## Notes for running locally
 
 - Study state lives in SQLite under `.data/` (override with `HPO_DATABASE_URL`).
 - Backup anytime: `python hpo_cli.py backup --output backup.db`
