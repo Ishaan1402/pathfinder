@@ -451,7 +451,7 @@ def handle_api_complete_trial(req: CompleteTrialRequest):
 
             write_ide_status_file(req.study_name, health_tier, health_reason, study)
         except Exception as err:
-            print(f"Error updating coordinator health status: {err}")
+            print(f"Error updating study health status: {err}")
 
         # Fetch completed scores for sparkline
         completed_scores = []
