@@ -1,0 +1,36 @@
+# Demo study for simulators/training_worker.py — register with:
+#   python hpo_cli.py init templates/demo_study.yaml
+
+study_name: demo_study
+
+metrics:
+  primary_score: score
+  objectives:
+    - name: score
+      direction: maximize
+      label: "Score"
+    - name: loss
+      direction: minimize
+      label: "Loss"
+
+params:
+  - name: learning_rate
+    type: float_log
+    min: 1.0e-5
+    max: 1.0e-2
+  - name: batch_size
+    type: categorical
+    options: [2, 4, 8, 16]
+  - name: resolution
+    type: categorical
+    options: [256, 512, 1024]
+  - name: model_capacity
+    type: categorical
+    options: ["narrow", "wide"]
+  - name: loss_weight_ratio
+    type: float
+    min: 0.0
+    max: 1.0
+
+worker:
+  entrypoint: python simulators/training_worker.py
