@@ -24,7 +24,7 @@ Your coding agents architect training pipelines, but the optimization loop still
 
 2 layers:
 
-- **Broker (FastAPI + Optuna TPE)**: Suggests hyperparameters in <10ms, prunes underperforming trials, and flags study health issues (stagnation, OOM patterns, 100% prune rates)
+- **Broker (FastAPI + Optuna TPE)**: A lightweight coordination server optimized for iterative training with up to two objectives (e.g., maximizing accuracy and minimizing loss). Suggests parameters in <20ms locally (excluding network latency for standard study sizes), handles early stopping, and monitors study health (stagnation, OOM patterns).
 - **Worker**: Runs your training script in a loop. Calls `suggest`, `report_epoch`, `complete`. Reports VRAM telemetry and handles OOMs without crashing the study.
 
 An MCP server gives your IDE agent read-only visibility into trial history, health tiers, and fANOVA importances. The agent can validate manifests and register new studies, only when you ask. The worker never waits on an LLM.
@@ -258,9 +258,10 @@ pytest tests/ -q
 
 ## Dev Notes
 
-- MCP chosen over CLI invocation for IDE-agent integration because typed auto-discovery (tools with schemas, resources with URI templates) provides a better contract than agents string-matching CLI output
+- MCP is implemented instead of giving the agent direct CLI execution access because structured APIs (schemas for tools and URIs for data) are much more reliable for AI tools than parsing raw command-line output.
 - Implemented concurrency patterns for distributed workers, real-time detection of crashed processes
 - Optimized SQLite backend performance using Write-Ahead Logging; allowing concurrent broker writes, dashboard rendering, and MCP queries without read-write blocks
+- Designed specifically for 1-2 objective optimization (e.g., maximizing score while minimizing loss) which is typical for deep learning pipelines. Rather than building an overly complicated multi-objective schema, my effort was focused on making the system I have work in practice (lease management, concurrent SQLite WAL transactions, VRAM telemetry, and automatic worker OOM recovery).
 
 ---
 
