@@ -63,29 +63,4 @@
         }
         return res;
     };
-
-    // Auto-login from query parameter '?token=...'
-    const urlParams = new URLSearchParams(window.location.search);
-    const urlToken = urlParams.get('token');
-    if (urlToken) {
-        // Strip the token from the URL search parameters immediately to prevent it from leaking in history/referrers
-        const cleanUrl = new URL(window.location.href);
-        cleanUrl.searchParams.delete('token');
-        window.history.replaceState({}, document.title, cleanUrl.toString());
-
-        originalFetch("/api/login", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ token: urlToken.trim() }),
-        }).then(res => {
-            if (res.ok) {
-                // Reload the page to retry all initial API calls with the session cookie set
-                window.location.reload();
-            } else {
-                console.error("Auto-login token was invalid.");
-            }
-        }).catch(err => {
-            console.error("Auto-login failed:", err);
-        });
-    }
 })();
