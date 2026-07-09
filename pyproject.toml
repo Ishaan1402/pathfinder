@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "pathfinder"
 version = "1.0.0"
-description = "Decoupled hyperparameter optimization (HPO) framework with periodically scheduled AI coordinator reviews"
+description = "Local HPO broker (Optuna TPE + FastAPI) with MCP tools for agent onboarding and study inspection"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
@@ -23,7 +23,7 @@ dependencies = [
     "sqlalchemy>=2.0,<3",
 
     "pydantic>=2.0,<3",
-    "numpy>=1.20,<3",
+    "numpy>=1.20,<2.3",
     "fastapi>=0.110,<1",
     "uvicorn>=0.23,<1",
     "requests>=2.28,<3",
