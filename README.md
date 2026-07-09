@@ -1,8 +1,8 @@
-# Pathfinder &emsp; [![Build Status](https://github.com/Ishaan1402/pathfinder/actions/workflows/integration.yml/badge.svg)](https://github.com/Ishaan1402/pathfinder/actions) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
+# Pathfinder &emsp; [![Build Status](https://github.com/Ishaan1402/pathfinder/actions/workflows/ci.yml/badge.svg)](https://github.com/Ishaan1402/pathfinder/actions) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
 
 ---
 
-Your coding agents architect training pipelines, but the optimization loop still runs completely out of their sight. Pathfinder brings that loop back in view.
+Pathfinder is a HPO broker for 1–2 objective deep learning runs, not an LLM that picks hyperparameters. The broker suggests via Optuna TPE; your IDE agent then inspects results only when you ask
 
 
 <table border="0">
@@ -38,12 +38,22 @@ An MCP server gives your IDE agent read-only visibility into trial history, heal
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements.txt   # or: pip install -r requirements-dev.lock for pinned CI deps
 python broker.py --daemon
 # Dashboard: http://127.0.0.1:8000
 ```
 
 Using the dashboard is optional; CLI and your IDE agent can do everything.
+
+### Try it without your own training script
+
+```bash
+python hpo_cli.py init templates/demo_study.yaml
+export HPO_BROKER_URL=http://localhost:8000
+export HPO_STUDY_NAME=demo_study
+python simulators/training_worker.py --study_name demo_study --max_trials 3
+# Open http://127.0.0.1:8000 to watch trials
+```
 
 ### Step 2: Connect Your Workers
 
@@ -251,6 +261,16 @@ python hpo_cli.py delete my_study
 # Run tests
 pytest tests/ -q
 ```
+
+---
+
+
+
+## Notes for running locally
+
+- Study state lives in SQLite under `.data/` (override with `HPO_DATABASE_URL`).
+- Backup anytime: `python hpo_cli.py backup --output backup.db`
+- Auth: loopback needs no token. With `--tunnel`, set `HPO_SECRET_TOKEN` and pass the same value to workers (`X-HPO-Token`). This is a shared secret for a single operator.
 
 ---
 

@@ -279,7 +279,7 @@ def api_fanova(study_name: str):
 
 @router.get("/study_packet")
 def api_study_packet(study_name: str):
-    """Read-only context for the IDE coordinator: Pareto, fANOVA, eval insights, drift reasons."""
+    """Read-only context for the IDE agent: Pareto, fANOVA, eval insights, drift reasons."""
     try:
         return build_study_packet(study_name)
     except Exception as e:

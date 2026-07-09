@@ -24,10 +24,13 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements-dev.txt
+          pip install -r requirements-dev.lock
+
+      - name: Smoke import
+        run: python -c "import broker; import hpo_cli"
 
       - name: Lint
-        run: ruff check src/ hpo_cli.py hpo_mcp_server.py broker.py --select F
+        run: ruff check src/ hpo_cli.py hpo_mcp_server.py broker.py --select F,E9
 
       - name: Run tests (SQLite)
         run: pytest tests/ -q

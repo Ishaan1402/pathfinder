@@ -37,8 +37,10 @@ Save that token and use the **same** value in three places:
 | Where | How |
 |-------|-----|
 | Colab / worker | `os.environ["HPO_SECRET_TOKEN"] = "…"` — `TrialSession` sends `X-HPO-Token` |
-| Dashboard | First visit to the tunnel URL prompts once; stored in a session cookie |
+| Dashboard | Open the tunnel URL; enter the token when prompted (stored in a session cookie) |
 | CLI / MCP | `export HPO_SECRET_TOKEN=…` when tools hit the tunneled broker |
+
+Auth uses a shared secret for personal tunnel setups. Loopback (`127.0.0.1`) needs no token.
 
 Worker downloads also require the token header when auth is on. The dashboard **Worker Setup** tab
 generates copy-paste snippets.
@@ -227,7 +229,7 @@ Safe to run while the broker is running.
 
 | Variable | Default | Description |
 |---|---|---|---|
-| `HPO_DATABASE_URL` | `sqlite:///hpo_studies.db` | SQLite connection string. |
+| `HPO_DATABASE_URL` | `sqlite:///.data/hpo_studies.db` | SQLite connection string. |
 | `HPO_BROKER_URL` | `http://localhost:8000` | URL the worker uses to reach the broker. |
 | `HPO_STUDY_NAME` | *(none)* | Default study name when not passed explicitly. |
 | `HPO_SECRET_TOKEN` | *(none)* | Bearer token required when `--tunnel` auth is enabled. |

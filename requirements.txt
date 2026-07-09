@@ -1,11 +1,13 @@
-# Runtime dependencies. Bounds cap the next major version to avoid surprise breaking changes
-# while still allowing security/patch updates. Dev/test extras live in requirements-dev.txt.
+# Editable bounds. CI pins via requirements-dev.lock (compile on the oldest supported Python).
+#   python3.10 -m pip install pip-tools
+#   python3.10 -m piptools compile requirements-dev.txt -o requirements-dev.lock --strip-extras
 mcp>=1.1,<2
 optuna>=3.6,<5
 sqlalchemy>=2.0,<3
 
 pydantic>=2.0,<3
-numpy>=1.20,<3
+# NumPy 2.3+ dropped 3.10; keep the ceiling so the 3.10 CI matrix stays installable.
+numpy>=1.20,<2.3
 fastapi>=0.110,<1
 uvicorn>=0.23,<1
 requests>=2.28,<3

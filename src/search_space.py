@@ -214,7 +214,7 @@ def suggest_params_from_space(study, trial, space: Dict[str, Any]) -> Dict[str, 
 
 
 def _apply_search_space_patch(patch: Dict[str, Any], space: Dict[str, Any], study_name: str) -> str:
-    """Validate + persist active-bound narrowing from a coordinator review."""
+    """Validate + persist active-bound narrowing from a search-space patch."""
     for param, new_val in patch.items():
         if param not in space:
             return f"Unknown parameter '{param}'."

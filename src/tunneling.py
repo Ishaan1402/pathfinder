@@ -66,7 +66,8 @@ def _persist_tunnel_url(url: str, secret_token: Optional[str], label: str = "") 
         print(f"\n{'='*50}")
         print(f"\U0001f525 Remote broker URL established{label_text}: {url}")
         if secret_token:
-            print(f"   Auto-login Link: {url}/?token={secret_token}")
+            print(f"   Dashboard: {url}")
+            print("   Enter the access token when the dashboard prompts.")
         print(f"{'='*50}\n")
     except Exception as db_err:
         print(f"Error saving remote broker URL: {db_err}")
@@ -152,18 +153,19 @@ def ensure_secret_token(args_host: str, tunnel_requested: bool) -> Optional[str]
 
 
 def print_security_banner(secret_token: Optional[str], host: str, port: int) -> None:
-    """Print the token and login link banner on startup."""
+    """Print the token and dashboard URL banner on startup."""
     if not secret_token:
         return
     is_loopback = host in ("127.0.0.1", "localhost", "::1", "0.0.0.0", "::")
     host_display = "localhost" if is_loopback else host
     port_suffix = f":{port}" if port != 80 else ""
-    local_login_url = f"http://{host_display}{port_suffix}/?token={secret_token}"
+    dashboard_url = f"http://{host_display}{port_suffix}/"
 
     print("\n" + "=" * 80)
     print("\U0001f511 PATHFINDER DASHBOARD SECURITY ACTIVE")
     print(f"   Access Token: {secret_token}")
-    print(f"   Auto-login Link: {local_login_url}")
+    print(f"   Dashboard: {dashboard_url}")
+    print("   Enter the access token when the dashboard prompts.")
     if not is_loopback:
         print(f"\U0001f512 Secure Private VPN/Tailscale Network Mode enabled. Binding to {host}:{port}")
     print("=" * 80 + "\n")

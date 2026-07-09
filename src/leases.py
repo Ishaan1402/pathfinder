@@ -71,7 +71,7 @@ def _try_claim_lease(session, study_name: str, trial_id: int, worker_id: str,
     already held by this worker. If no row matched (no lease yet), INSERT and win on the
     trial_id primary key; a losing racer hits IntegrityError and returns False. This is the
     sole mechanism preventing two workers from being handed the same trial. Safe under
-    concurrency: SQLite (WAL + busy_timeout) serializes writers and Postgres locks the row.
+    concurrency: SQLite (WAL + busy_timeout) serializes writers.
     """
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     new_expiry = now + timedelta(seconds=ttl_seconds)

@@ -2,3 +2,8 @@
 -r requirements.txt
 pytest>=8.0
 ruff>=0.4
+
+# CI installs the lock (pinned). Users can use this file or requirements.txt with ranges.
+# Regenerate on the oldest supported Python so the matrix stays installable:
+#   python3.10 -m pip install pip-tools
+#   python3.10 -m piptools compile requirements-dev.txt -o requirements-dev.lock --strip-extras

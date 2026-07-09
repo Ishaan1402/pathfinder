@@ -215,7 +215,7 @@ def run_training_worker(
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Simulated Pathfinder Training Worker")
-    parser.add_argument("--study_name", default="unet_crack_segmentation", help="Study name")
+    parser.add_argument("--study_name", default="demo_study", help="Study name")
     parser.add_argument("--max_trials", type=int, default=5, help="Number of trials to run")
     parser.add_argument("--epochs_per_trial", type=int, default=10, help="Epochs per trial")
     parser.add_argument("--broker_url", default=None, help="Broker URL")
